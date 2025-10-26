@@ -315,9 +315,11 @@ repositories {
         let repos = parser.extract_repositories_kotlin(content).unwrap();
 
         assert_eq!(repos.len(), 3);
-        assert!(repos
-            .iter()
-            .any(|r| r.url == "https://repo1.maven.org/maven2"));
+        assert!(
+            repos
+                .iter()
+                .any(|r| r.url == "https://repo1.maven.org/maven2")
+        );
         assert!(repos.iter().any(|r| r.url == "https://jitpack.io"));
     }
 

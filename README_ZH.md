@@ -1,5 +1,9 @@
 # GVC (Gradle 版本目录更新器)
 
+[![Crates.io](https://img.shields.io/crates/v/gvc.svg)](https://crates.io/crates/gvc)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+
 一个快速、独立的 CLI 工具，用于检查和更新 Gradle 版本目录（`libs.versions.toml`）中的依赖。
 
 [English](README.md) | 简体中文
@@ -19,16 +23,38 @@
 
 ## 前置要求
 
-- Rust 1.70+（用于构建）
+- Rust stable（用于从源码构建）
 - 使用版本目录的 Gradle 项目（`gradle/libs.versions.toml`）
 - Git（可选，用于分支/提交功能）
 - 互联网连接（用于查询 Maven 仓库）
 
 ## 安装
 
+### 从 crates.io 安装（推荐）
+
+```bash
+cargo install gvc
+```
+
+### 从 GitHub Releases 安装
+
+从 [releases 页面](https://github.com/kingsword09/gvc/releases) 下载预编译的二进制文件：
+
+```bash
+# Linux/macOS
+curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.0/gvc-x86_64-unknown-linux-gnu -o gvc
+chmod +x gvc
+sudo mv gvc /usr/local/bin/
+
+# 或使用安装脚本
+curl -sSL https://raw.githubusercontent.com/kingsword09/gvc/main/install.sh | bash
+```
+
 ### 从源码安装
 
 ```bash
+git clone https://github.com/kingsword09/gvc.git
+cd gvc
 cargo install --path .
 ```
 
@@ -337,6 +363,33 @@ Apache-2.0
 ## 贡献
 
 欢迎贡献！请随时提交 Pull Request。
+
+### 开发设置
+
+1. 克隆仓库：
+   ```bash
+   git clone https://github.com/kingsword09/gvc.git
+   cd gvc
+   ```
+
+2. 构建和测试：
+   ```bash
+   cargo build
+   cargo test
+   cargo clippy
+   ```
+
+3. 本地运行：
+   ```bash
+   cargo run -- check
+   cargo run -- update --no-git
+   ```
+
+查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解更多详情。
+
+## 更新日志
+
+查看 [CHANGELOG.md](CHANGELOG.md) 了解版本历史。
 
 ## 路线图
 

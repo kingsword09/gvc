@@ -1,5 +1,5 @@
 # Clippy configuration
-msrv = "1.70"
+msrv = "1.85"
 
 # Warn on all clippy lints
 warn-on-all-wildcard-imports = true

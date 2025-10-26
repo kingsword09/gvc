@@ -21,7 +21,7 @@ impl MavenRepository {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         Ok(Self {
             client,
@@ -48,7 +48,7 @@ impl MavenRepository {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         let repos = if repositories.is_empty() {
             vec![
@@ -155,7 +155,7 @@ impl MavenRepository {
 
         let text = response
             .text()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         let metadata: MavenMetadata = from_str(&text)
             .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
@@ -205,7 +205,7 @@ impl MavenRepository {
 
         let text = response
             .text()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         let maven_metadata: MavenMetadata = from_str(&text)
             .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
