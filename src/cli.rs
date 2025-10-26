@@ -12,6 +12,10 @@ pub struct Cli {
     #[arg(short, long, default_value = ".")]
     pub path: String,
 
+    /// Enable verbose output for debugging
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -24,8 +28,8 @@ pub enum Commands {
         #[arg(short, long)]
         interactive: bool,
 
-        /// Only update to stable versions (no alpha, beta, RC)
-        #[arg(short, long)]
+        /// Only update to stable versions (no alpha, beta, RC) - enabled by default
+        #[arg(short, long, default_value_t = true)]
         stable_only: bool,
 
         /// Skip Git operations (don't create branch or commit)

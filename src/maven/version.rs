@@ -160,4 +160,99 @@ mod tests {
         let latest_stable = VersionComparator::get_latest(&versions, true);
         assert_eq!(latest_stable, Some("1.0.1".to_string()));
     }
+
+    #[test]
+    fn test_numeric_version_comparison() {
+        // Test date-based versions (common in Android/Kotlin)
+        let v1 = Version::parse("2024.1.1");
+        let v2 = Version::parse("2024.1.2");
+        let v3 = Version::parse("2024.2.1");
+        assert!(v2 > v1);
+        assert!(v3 > v2);
+        assert!(v3 > v1);
+    }
+
+    #[test]
+    fn test_mixed_version_formats() {
+        // Semantic version vs numeric
+        let v1 = Version::parse("1.0.0");
+        let v2 = Version::parse("2.0");
+        assert!(v2 > v1);
+    }
+
+    #[test]
+    fn test_unstable_markers() {
+        // Test various unstable version markers
+        assert!(!Version::parse("1.0.0-beta").is_stable());
+        assert!(!Version::parse("1.0.0-rc1").is_stable());
+        assert!(!Version::parse("1.0.0-dev").is_stable());
+        assert!(!Version::parse("1.0.0.dev").is_stable());
+        assert!(!Version::parse("1.0.0-m1").is_stable());
+        assert!(!Version::parse("1.0.0-eap").is_stable());
+        assert!(!Version::parse("1.0.0-preview").is_stable());
+        assert!(!Version::parse("1.0.0-canary").is_stable());
+    }
+
+    #[test]
+    fn test_snapshot_versions() {
+        let v1 = Version::parse("1.0.0-SNAPSHOT");
+        let v2 = Version::parse("1.0.0");
+        assert!(v2 > v1); // Stable should be greater than snapshot
+        assert!(!v1.is_stable());
+    }
+
+    #[test]
+    fn test_version_with_different_lengths() {
+        let v1 = Version::parse("1.0");
+        let v2 = Version::parse("1.0.0");
+        let v3 = Version::parse("1.0.0.0");
+        // All should be considered equal or properly ordered
+        assert!(v2 >= v1);
+        assert!(v3 >= v2);
+    }
+
+    #[test]
+    fn test_is_newer() {
+        assert!(VersionComparator::is_newer("2.0.0", "1.0.0"));
+        assert!(VersionComparator::is_newer("1.1.0", "1.0.0"));
+        assert!(VersionComparator::is_newer("1.0.1", "1.0.0"));
+        assert!(!VersionComparator::is_newer("1.0.0", "1.0.0"));
+        assert!(!VersionComparator::is_newer("1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn test_get_latest_with_mixed_versions() {
+        let versions = vec![
+            "1.0.0".to_string(),
+            "1.1.0-beta".to_string(),
+            "1.0.1".to_string(),
+            "2.0.0-SNAPSHOT".to_string(),
+            "1.2.0".to_string(),
+        ];
+
+        let latest = VersionComparator::get_latest(&versions, false);
+        assert_eq!(latest, Some("2.0.0-SNAPSHOT".to_string()));
+
+        let latest_stable = VersionComparator::get_latest(&versions, true);
+        assert_eq!(latest_stable, Some("1.2.0".to_string()));
+    }
+
+    #[test]
+    fn test_kotlin_version_format() {
+        // Kotlin uses versions like 1.9.20, 2.0.0
+        let v1 = Version::parse("1.9.20");
+        let v2 = Version::parse("2.0.0");
+        assert!(v2 > v1);
+    }
+
+    #[test]
+    fn test_android_gradle_plugin_versions() {
+        // AGP uses versions like 8.1.0, 8.2.0-alpha01
+        let v1 = Version::parse("8.1.0");
+        let v2 = Version::parse("8.2.0");
+        let v3 = Version::parse("8.2.0-alpha01");
+        assert!(v2 > v1);
+        assert!(!v3.is_stable());
+    }
 }
+

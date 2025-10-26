@@ -46,7 +46,7 @@ impl MavenRepository {
 
     pub fn with_repositories(repositories: Vec<GradleRepository>) -> Result<Self> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
@@ -132,13 +132,24 @@ impl MavenRepository {
             repo_url, group_path, artifact
         );
 
-        // Silently try to fetch, only print on error if needed
+        if std::env::var("GVC_VERBOSE").is_ok() {
+            eprintln!("[VERBOSE] Fetching: {}", metadata_url);
+        }
+
         let response = match self.client.get(&metadata_url).send() {
             Ok(resp) => resp,
-            Err(_) => return Ok(None),
+            Err(e) => {
+                if std::env::var("GVC_VERBOSE").is_ok() {
+                    eprintln!("[VERBOSE] Request failed: {}", e);
+                }
+                return Ok(None);
+            }
         };
 
         if !response.status().is_success() {
+            if std::env::var("GVC_VERBOSE").is_ok() {
+                eprintln!("[VERBOSE] HTTP {}: {}", response.status(), metadata_url);
+            }
             return Ok(None);
         }
 
