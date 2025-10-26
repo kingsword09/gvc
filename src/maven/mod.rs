@@ -1,5 +1,5 @@
 pub mod repository;
 pub mod version;
 
-pub use repository::{MavenRepository, DependencyMetadata, parse_maven_coordinate};
-pub use version::{Version, VersionComparator};
+pub use repository::{parse_maven_coordinate, MavenRepository};
+pub use version::VersionComparator;

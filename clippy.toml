@@ -1,0 +1,8 @@
+# Clippy configuration
+msrv = "1.70"
+
+# Warn on all clippy lints
+warn-on-all-wildcard-imports = true
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30

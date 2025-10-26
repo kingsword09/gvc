@@ -54,21 +54,21 @@ impl Version {
 
     pub fn is_stable(&self) -> bool {
         let lower = self.original.to_lowercase();
-        
+
         // Check for common unstable markers
         let unstable_markers = [
-            "alpha", "beta", "rc", "snapshot", "dev", 
-            "-dev", "+dev", ".dev",  // Various dev version formats
-            "m1", "m2", "m3",  // Milestone versions
-            "eap", "preview", "canary"
+            "alpha", "beta", "rc", "snapshot", "dev", "-dev", "+dev",
+            ".dev", // Various dev version formats
+            "m1", "m2", "m3", // Milestone versions
+            "eap", "preview", "canary",
         ];
-        
+
         for marker in &unstable_markers {
             if lower.contains(marker) {
                 return false;
             }
         }
-        
+
         // For semantic versions, also check pre-release
         match &self.parsed {
             VersionType::Semantic(v) => v.pre.is_empty(),
@@ -109,10 +109,8 @@ pub struct VersionComparator;
 impl VersionComparator {
     /// Get the latest version from a list
     pub fn get_latest(versions: &[String], stable_only: bool) -> Option<String> {
-        let mut parsed_versions: Vec<Version> = versions
-            .iter()
-            .map(|v| Version::parse(v))
-            .collect();
+        let mut parsed_versions: Vec<Version> =
+            versions.iter().map(|v| Version::parse(v)).collect();
 
         if stable_only {
             parsed_versions.retain(|v| v.is_stable());
@@ -155,10 +153,10 @@ mod tests {
             "1.1.0-alpha".to_string(),
             "1.0.1".to_string(),
         ];
-        
+
         let latest = VersionComparator::get_latest(&versions, false);
         assert_eq!(latest, Some("1.1.0-alpha".to_string()));
-        
+
         let latest_stable = VersionComparator::get_latest(&versions, true);
         assert_eq!(latest_stable, Some("1.0.1".to_string()));
     }

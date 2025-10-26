@@ -52,8 +52,10 @@ impl ProjectScannerAgent {
 
 #[derive(Debug, Clone)]
 pub struct ProjectInfo {
+    #[allow(dead_code)]
     pub project_path: PathBuf,
     pub toml_path: PathBuf,
     pub has_git: bool,
+    #[allow(dead_code)]
     pub gradlew_path: PathBuf,
 }

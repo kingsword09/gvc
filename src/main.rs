@@ -1,9 +1,9 @@
 mod agents;
 mod cli;
 mod error;
-mod workflow;
-mod maven;
 mod gradle;
+mod maven;
+mod workflow;
 
 use clap::Parser;
 use cli::{Cli, Commands};

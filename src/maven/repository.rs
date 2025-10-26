@@ -1,9 +1,9 @@
 use crate::error::{GvcError, Result};
 use crate::gradle::Repository as GradleRepository;
 use crate::maven::version::VersionComparator;
-use reqwest::blocking::Client;
-use regex::Regex;
 use quick_xml::de::from_str;
+use regex::Regex;
+use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -34,7 +34,11 @@ impl MavenRepository {
                 GradleRepository {
                     name: "Google Maven".to_string(),
                     url: GOOGLE_MAVEN.to_string(),
-                    group_filters: vec![".*google.*".to_string(), ".*android.*".to_string(), ".*androidx.*".to_string()],
+                    group_filters: vec![
+                        ".*google.*".to_string(),
+                        ".*android.*".to_string(),
+                        ".*androidx.*".to_string(),
+                    ],
                 },
             ],
         })
@@ -56,7 +60,11 @@ impl MavenRepository {
                 GradleRepository {
                     name: "Google Maven".to_string(),
                     url: GOOGLE_MAVEN.to_string(),
-                    group_filters: vec![".*google.*".to_string(), ".*android.*".to_string(), ".*androidx.*".to_string()],
+                    group_filters: vec![
+                        ".*google.*".to_string(),
+                        ".*android.*".to_string(),
+                        ".*androidx.*".to_string(),
+                    ],
                 },
             ]
         } else {
@@ -81,22 +89,25 @@ impl MavenRepository {
         // Try repositories in order, return first successful result
         for repo in &self.repositories {
             // Skip repository if it has filters and group doesn't match any of them
-            if !repo.group_filters.is_empty() && !Self::matches_filters(group, &repo.group_filters) {
+            if !repo.group_filters.is_empty() && !Self::matches_filters(group, &repo.group_filters)
+            {
                 continue;
             }
-            
-            if let Ok(Some(versions)) = self.fetch_all_versions_from_repository(&repo.url, group, artifact) {
+
+            if let Ok(Some(versions)) =
+                self.fetch_all_versions_from_repository(&repo.url, group, artifact)
+            {
                 if !versions.is_empty() {
                     // Found versions in this repository, use them
                     return Ok(VersionComparator::get_latest(&versions, stable_only));
                 }
             }
         }
-        
+
         // No repository had this artifact
         Ok(None)
     }
-    
+
     /// Check if a group matches any of the regex filters
     fn matches_filters(group: &str, filters: &[String]) -> bool {
         for filter_pattern in filters {
@@ -131,29 +142,29 @@ impl MavenRepository {
             return Ok(None);
         }
 
-        let text = response.text().map_err(|e| {
-            GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
+        let text = response
+            .text()
+            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-        let metadata: MavenMetadata = from_str(&text).map_err(|e| {
-            GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e))
-        })?;
+        let metadata: MavenMetadata = from_str(&text)
+            .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
 
-        let versions: Vec<String> = metadata
-            .versioning
-            .versions
-            .version
-            .iter()
-            .map(|v| v.clone())
-            .collect();
+        let versions: Vec<String> = metadata.versioning.versions.version.to_vec();
 
         Ok(Some(versions))
     }
 
     /// Fetch metadata for a dependency
-    pub fn fetch_metadata(&self, group: &str, artifact: &str) -> Result<Option<DependencyMetadata>> {
+    #[allow(dead_code)]
+    pub fn fetch_metadata(
+        &self,
+        group: &str,
+        artifact: &str,
+    ) -> Result<Option<DependencyMetadata>> {
         for repo in &self.repositories {
-            if let Ok(Some(metadata)) = self.fetch_metadata_from_repository(&repo.url, group, artifact) {
+            if let Ok(Some(metadata)) =
+                self.fetch_metadata_from_repository(&repo.url, group, artifact)
+            {
                 return Ok(Some(metadata));
             }
         }
@@ -181,13 +192,12 @@ impl MavenRepository {
             return Ok(None);
         }
 
-        let text = response.text().map_err(|e| {
-            GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
+        let text = response
+            .text()
+            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-        let maven_metadata: MavenMetadata = from_str(&text).map_err(|e| {
-            GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e))
-        })?;
+        let maven_metadata: MavenMetadata = from_str(&text)
+            .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
 
         Ok(Some(DependencyMetadata {
             group: maven_metadata.group_id,
@@ -200,6 +210,7 @@ impl MavenRepository {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DependencyMetadata {
     pub group: String,
     pub artifact: String,
@@ -211,15 +222,19 @@ pub struct DependencyMetadata {
 #[derive(Debug, Deserialize)]
 struct MavenMetadata {
     #[serde(rename = "groupId")]
+    #[allow(dead_code)]
     group_id: String,
     #[serde(rename = "artifactId")]
+    #[allow(dead_code)]
     artifact_id: String,
     versioning: Versioning,
 }
 
 #[derive(Debug, Deserialize)]
 struct Versioning {
+    #[allow(dead_code)]
     latest: Option<String>,
+    #[allow(dead_code)]
     release: Option<String>,
     versions: Versions,
 }

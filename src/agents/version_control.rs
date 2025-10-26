@@ -19,7 +19,7 @@ impl VersionControlAgent {
     pub fn is_working_directory_clean(&self) -> Result<bool> {
         let output = Command::new("git")
             .current_dir(&self.project_path)
-            .args(&["status", "--porcelain"])
+            .args(["status", "--porcelain"])
             .output()
             .map_err(|e| GvcError::GitOperation(format!("Failed to check git status: {}", e)))?;
 
@@ -40,7 +40,7 @@ impl VersionControlAgent {
         // Create and checkout the branch
         let output = Command::new("git")
             .current_dir(&self.project_path)
-            .args(&["checkout", "-b", &branch_name])
+            .args(["checkout", "-b", &branch_name])
             .output()
             .map_err(|e| GvcError::GitOperation(format!("Failed to create branch: {}", e)))?;
 
@@ -58,7 +58,7 @@ impl VersionControlAgent {
     pub fn stage_version_catalog(&self) -> Result<()> {
         let output = Command::new("git")
             .current_dir(&self.project_path)
-            .args(&["add", "gradle/libs.versions.toml"])
+            .args(["add", "gradle/libs.versions.toml"])
             .output()
             .map_err(|e| GvcError::GitOperation(format!("Failed to stage file: {}", e)))?;
 
@@ -78,7 +78,7 @@ impl VersionControlAgent {
 
         let output = Command::new("git")
             .current_dir(&self.project_path)
-            .args(&["commit", "-m", message])
+            .args(["commit", "-m", message])
             .output()
             .map_err(|e| GvcError::GitOperation(format!("Failed to commit: {}", e)))?;
 
