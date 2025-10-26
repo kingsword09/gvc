@@ -1,5 +1,7 @@
 use crate::error::{GvcError, Result};
-use crate::maven::{parse_maven_coordinate, MavenRepository, PluginPortalClient, VersionComparator};
+use crate::maven::{
+    parse_maven_coordinate, MavenRepository, PluginPortalClient, VersionComparator,
+};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
@@ -118,23 +120,25 @@ impl DependencyUpdater {
         report: &mut UpdateReport,
     ) -> Result<()> {
         // Clone the data we need to read before mutating
-        let versions_data: Vec<(String, String)> = if let Some(versions) = doc.get("versions").and_then(|v| v.as_table()) {
-            versions
-                .iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.to_string(), s.to_string())))
-                .collect()
-        } else {
-            return Ok(());
-        };
+        let versions_data: Vec<(String, String)> =
+            if let Some(versions) = doc.get("versions").and_then(|v| v.as_table()) {
+                versions
+                    .iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.to_string(), s.to_string())))
+                    .collect()
+            } else {
+                return Ok(());
+            };
 
-        let libraries_data: Vec<(String, toml_edit::Item)> = if let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) {
-            libraries
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.clone()))
-                .collect()
-        } else {
-            return Ok(());
-        };
+        let libraries_data: Vec<(String, toml_edit::Item)> =
+            if let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) {
+                libraries
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect()
+            } else {
+                return Ok(());
+            };
 
         if versions_data.is_empty() {
             return Ok(());
@@ -158,7 +162,8 @@ impl DependencyUpdater {
                 let uses_this_version = if let Some(inline_table) = lib_value.as_inline_table() {
                     if let Some(version_item) = inline_table.get("version") {
                         if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key.as_str())
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
                         } else {
                             false
                         }
@@ -168,9 +173,11 @@ impl DependencyUpdater {
                 } else if let Some(table) = lib_value.as_table() {
                     if let Some(version_item) = table.get("version") {
                         if let Some(version_ref) = version_item.as_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key.as_str())
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
                         } else if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key.as_str())
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
                         } else {
                             false
                         }
@@ -186,7 +193,9 @@ impl DependencyUpdater {
                         if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
                             parse_maven_coordinate(module)
                                 .map(|(g, a, _)| (g.to_string(), a.to_string()))
-                        } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
+                        } else if let Some(group) =
+                            inline_table.get("group").and_then(|v| v.as_str())
+                        {
                             inline_table
                                 .get("name")
                                 .and_then(|v| v.as_str())
@@ -218,14 +227,19 @@ impl DependencyUpdater {
             }
 
             if let Some((group, artifact)) = representative_lib {
-                if let Some(latest) = self
-                    .maven_repo
-                    .fetch_latest_version(&group, &artifact, stable_only)?
+                if let Some(latest) =
+                    self.maven_repo
+                        .fetch_latest_version(&group, &artifact, stable_only)?
                 {
-                    if latest != current_version && VersionComparator::is_newer(&latest, &current_version) {
+                    if latest != current_version
+                        && VersionComparator::is_newer(&latest, &current_version)
+                    {
                         // Update the version in the document
-                        if let Some(versions_mut) = doc.get_mut("versions").and_then(|v| v.as_table_mut()) {
-                            *versions_mut.get_mut(&version_key).unwrap() = toml_edit::value(latest.as_str());
+                        if let Some(versions_mut) =
+                            doc.get_mut("versions").and_then(|v| v.as_table_mut())
+                        {
+                            *versions_mut.get_mut(&version_key).unwrap() =
+                                toml_edit::value(latest.as_str());
                             report.add_version_update(version_key.clone(), current_version, latest);
                         }
                     }
@@ -701,7 +715,9 @@ impl DependencyUpdater {
                 .plugin_portal
                 .fetch_latest_plugin_version(&plugin_id, stable_only)?
             {
-                if latest != current_version && VersionComparator::is_newer(&latest, &current_version) {
+                if latest != current_version
+                    && VersionComparator::is_newer(&latest, &current_version)
+                {
                     // Update the version
                     *table.get_mut("version").unwrap() = Item::Value(Value::from(latest.as_str()));
                     return Ok(Some(DependencyUpdate {

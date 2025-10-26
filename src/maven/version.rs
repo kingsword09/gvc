@@ -255,4 +255,3 @@ mod tests {
         assert!(!v3.is_stable());
     }
 }
-

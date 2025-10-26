@@ -41,7 +41,10 @@ impl PluginPortalClient {
         let artifact = format!("{}.gradle.plugin", plugin_id);
 
         if std::env::var("GVC_VERBOSE").is_ok() {
-            eprintln!("[VERBOSE] Fetching plugin: {} ({}:{})", plugin_id, group, artifact);
+            eprintln!(
+                "[VERBOSE] Fetching plugin: {} ({}:{})",
+                plugin_id, group, artifact
+            );
         }
 
         let versions = self.fetch_all_plugin_versions(group, &artifact)?;
@@ -52,7 +55,11 @@ impl PluginPortalClient {
             }
 
             if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!("[VERBOSE] Found {} versions for plugin {}", versions.len(), plugin_id);
+                eprintln!(
+                    "[VERBOSE] Found {} versions for plugin {}",
+                    versions.len(),
+                    plugin_id
+                );
             }
 
             Ok(VersionComparator::get_latest(&versions, stable_only))
@@ -97,8 +104,9 @@ impl PluginPortalClient {
             .text()
             .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-        let metadata: MavenMetadata = from_str(&text)
-            .map_err(|e| GvcError::TomlParsing(format!("Failed to parse plugin metadata: {}", e)))?;
+        let metadata: MavenMetadata = from_str(&text).map_err(|e| {
+            GvcError::TomlParsing(format!("Failed to parse plugin metadata: {}", e))
+        })?;
 
         let versions: Vec<String> = metadata.versioning.versions.version.to_vec();
 
