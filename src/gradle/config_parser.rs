@@ -128,7 +128,11 @@ impl GradleConfigParser {
             repositories.push(Repository {
                 name: "Google Maven".to_string(),
                 url: "https://dl.google.com/dl/android/maven2".to_string(),
-                group_filters: vec![".*google.*".to_string(), ".*android.*".to_string(), ".*androidx.*".to_string()],
+                group_filters: vec![
+                    ".*google.*".to_string(),
+                    ".*android.*".to_string(),
+                    ".*androidx.*".to_string(),
+                ],
             });
         }
 
@@ -142,8 +146,9 @@ impl GradleConfigParser {
         }
 
         // 匹配自定义 maven { url = uri("...") }
-        let maven_url_regex = Regex::new(r#"maven\s*\{\s*url\s*=\s*uri\s*\(\s*["']([^"']+)["']\s*\)\s*\}"#)
-            .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
+        let maven_url_regex =
+            Regex::new(r#"maven\s*\{\s*url\s*=\s*uri\s*\(\s*["']([^"']+)["']\s*\)\s*\}"#)
+                .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
 
         for cap in maven_url_regex.captures_iter(content) {
             if let Some(url) = cap.get(1) {
@@ -190,7 +195,11 @@ impl GradleConfigParser {
             repositories.push(Repository {
                 name: "Google Maven".to_string(),
                 url: "https://dl.google.com/dl/android/maven2".to_string(),
-                group_filters: vec![".*google.*".to_string(), ".*android.*".to_string(), ".*androidx.*".to_string()],
+                group_filters: vec![
+                    ".*google.*".to_string(),
+                    ".*android.*".to_string(),
+                    ".*androidx.*".to_string(),
+                ],
             });
         }
 
@@ -245,7 +254,11 @@ impl GradleConfigParser {
             Repository {
                 name: "Google Maven".to_string(),
                 url: "https://dl.google.com/dl/android/maven2".to_string(),
-                group_filters: vec![".*google.*".to_string(), ".*android.*".to_string(), ".*androidx.*".to_string()],
+                group_filters: vec![
+                    ".*google.*".to_string(),
+                    ".*android.*".to_string(),
+                    ".*androidx.*".to_string(),
+                ],
             },
         ]
     }
@@ -258,7 +271,7 @@ impl GradleConfigParser {
         for repo in repos {
             // 标准化URL（移除末尾的斜杠）
             let normalized_url = repo.url.trim_end_matches('/').to_string();
-            
+
             if seen_urls.insert(normalized_url.clone()) {
                 unique_repos.push(Repository {
                     name: repo.name,
@@ -302,7 +315,9 @@ repositories {
         let repos = parser.extract_repositories_kotlin(content).unwrap();
 
         assert_eq!(repos.len(), 3);
-        assert!(repos.iter().any(|r| r.url == "https://repo1.maven.org/maven2"));
+        assert!(repos
+            .iter()
+            .any(|r| r.url == "https://repo1.maven.org/maven2"));
         assert!(repos.iter().any(|r| r.url == "https://jitpack.io"));
     }
 

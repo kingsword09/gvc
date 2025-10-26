@@ -5,12 +5,14 @@ pub enum GvcError {
     #[error("Project validation failed: {0}")]
     ProjectValidation(String),
 
+    #[allow(dead_code)]
     #[error("Gradle execution failed: {0}")]
     GradleExecution(String),
 
     #[error("TOML parsing failed: {0}")]
     TomlParsing(String),
 
+    #[allow(dead_code)]
     #[error("Git operation failed: {0}")]
     GitOperation(String),
 

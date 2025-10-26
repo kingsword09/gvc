@@ -1,8 +1,6 @@
-use crate::agents::{
-    DependencyUpdater, ProjectScannerAgent, VersionControlAgent, UpdateReport,
-};
-use crate::gradle::GradleConfigParser;
+use crate::agents::{DependencyUpdater, ProjectScannerAgent, UpdateReport, VersionControlAgent};
 use crate::error::Result;
+use crate::gradle::GradleConfigParser;
 use colored::Colorize;
 use std::path::Path;
 
@@ -26,38 +24,53 @@ pub fn execute_update<P: AsRef<Path>>(
     if project_info.has_git && !no_git {
         println!("\n{}", "2. Checking Git status...".yellow());
         let git_agent = VersionControlAgent::new(project_path);
-        
+
         if !git_agent.is_working_directory_clean()? {
-            println!("{}", "⚠ Warning: Working directory has uncommitted changes".red());
+            println!(
+                "{}",
+                "⚠ Warning: Working directory has uncommitted changes".red()
+            );
             println!("Please commit or stash your changes before proceeding.");
             return Ok(());
         }
         println!("{}", "✓ Working directory is clean".green());
     } else if !no_git {
-        println!("\n{}", "2. Git repository not detected, skipping Git checks".yellow());
+        println!(
+            "\n{}",
+            "2. Git repository not detected, skipping Git checks".yellow()
+        );
     }
 
     // Step 3: Read Gradle repository configuration
-    println!("\n{}", "3. Reading Gradle repository configuration...".yellow());
+    println!(
+        "\n{}",
+        "3. Reading Gradle repository configuration...".yellow()
+    );
     let gradle_parser = GradleConfigParser::new(project_path);
     let gradle_config = gradle_parser.parse()?;
-    
-    println!("   Found {} repositories:", gradle_config.repositories.len());
+
+    println!(
+        "   Found {} repositories:",
+        gradle_config.repositories.len()
+    );
     for repo in &gradle_config.repositories {
         println!("   • {} ({})", repo.name.bright_cyan(), repo.url.dimmed());
     }
-    
+
     // Step 4: Update dependencies
     println!("\n{}", "4. Updating dependencies...".yellow());
     let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
-    
+
     let report = if interactive {
-        println!("{}", "Interactive mode not yet implemented, running automatic update...".yellow());
+        println!(
+            "{}",
+            "Interactive mode not yet implemented, running automatic update...".yellow()
+        );
         updater.update_version_catalog(&project_info.toml_path, stable_only)?
     } else {
         updater.update_version_catalog(&project_info.toml_path, stable_only)?
     };
-    
+
     println!("{}", "✓ Update completed".green());
 
     // Step 5: Display summary
@@ -68,12 +81,18 @@ pub fn execute_update<P: AsRef<Path>>(
         println!("\n{}", "5. Creating Git commit...".yellow());
         let git_agent = VersionControlAgent::new(project_path);
         let branch_name = git_agent.commit_to_new_branch()?;
-        println!("{}", format!("✓ Changes committed to branch: {}", branch_name).green());
+        println!(
+            "{}",
+            format!("✓ Changes committed to branch: {}", branch_name).green()
+        );
     } else if report.is_empty() {
         println!("\n{}", "No updates were applied".yellow());
     }
 
-    println!("\n{}", "✨ Update process completed successfully!".green().bold());
+    println!(
+        "\n{}",
+        "✨ Update process completed successfully!".green().bold()
+    );
     Ok(())
 }
 
@@ -83,9 +102,12 @@ pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Resu
     let version_channel = if stable_only { "stable" } else { "all" };
     println!(
         "{}",
-        format!("Checking for available updates ({} versions)...", version_channel)
-            .cyan()
-            .bold()
+        format!(
+            "Checking for available updates ({} versions)...",
+            version_channel
+        )
+        .cyan()
+        .bold()
     );
 
     // Step 1: Validate project structure
@@ -95,23 +117,29 @@ pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Resu
     println!("{}", "✓ Project structure is valid".green());
 
     // Step 2: Read Gradle repository configuration
-    println!("\n{}", "2. Reading Gradle repository configuration...".yellow());
+    println!(
+        "\n{}",
+        "2. Reading Gradle repository configuration...".yellow()
+    );
     let gradle_parser = GradleConfigParser::new(project_path);
     let gradle_config = gradle_parser.parse()?;
-    
-    println!("   Found {} repositories:", gradle_config.repositories.len());
+
+    println!(
+        "   Found {} repositories:",
+        gradle_config.repositories.len()
+    );
     for repo in &gradle_config.repositories {
         println!("   • {} ({})", repo.name.bright_cyan(), repo.url.dimmed());
     }
 
     // Step 3: Check for updates without modifying the file
     println!("\n{}", "3. Checking for available updates...".yellow());
-    
+
     let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
-    
+
     // 读取当前的TOML但不写回
     let report = updater.check_for_updates(&project_info.toml_path, stable_only)?;
-    
+
     println!("{}", "✓ Check completed".green());
 
     // Step 4: Display available updates
@@ -135,7 +163,10 @@ fn print_available_updates(report: &UpdateReport, stable_only: bool) {
     if stable_only {
         println!("{}", "   (showing stable versions only)".dimmed());
     } else {
-        println!("{}", "   (showing all versions including pre-releases)".dimmed());
+        println!(
+            "{}",
+            "   (showing all versions including pre-releases)".dimmed()
+        );
     }
 
     if !report.version_updates.is_empty() {
@@ -200,7 +231,10 @@ fn is_stable_version(version: &str) -> bool {
 /// Execute the list workflow - display all dependencies
 pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
     let project_path = project_path.as_ref();
-    println!("{}", "Listing dependencies in version catalog...".cyan().bold());
+    println!(
+        "{}",
+        "Listing dependencies in version catalog...".cyan().bold()
+    );
 
     // Step 1: Validate project structure
     println!("\n{}", "1. Validating project structure...".yellow());
@@ -210,12 +244,14 @@ pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
 
     // Step 2: Parse TOML file
     println!("\n{}", "2. Reading version catalog...".yellow());
-    let content = std::fs::read_to_string(&project_info.toml_path)
-        .map_err(|e| crate::error::GvcError::TomlParsing(format!("Failed to read catalog: {}", e)))?;
-    
-    let doc = content.parse::<toml_edit::DocumentMut>()
+    let content = std::fs::read_to_string(&project_info.toml_path).map_err(|e| {
+        crate::error::GvcError::TomlParsing(format!("Failed to read catalog: {}", e))
+    })?;
+
+    let doc = content
+        .parse::<toml_edit::DocumentMut>()
         .map_err(|e| crate::error::GvcError::TomlParsing(format!("Failed to parse TOML: {}", e)))?;
-    
+
     println!("{}", "✓ Catalog loaded".green());
 
     // Step 3: Display dependencies
@@ -227,9 +263,9 @@ pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
 fn print_dependencies(doc: &toml_edit::DocumentMut) {
     use crate::maven::parse_maven_coordinate;
     use std::collections::HashMap;
-    
+
     println!("\n{}", "📦 Dependencies:".cyan().bold());
-    
+
     // First, collect all version references
     let mut version_refs = HashMap::new();
     if let Some(versions) = doc.get("versions").and_then(|v| v.as_table()) {
@@ -239,18 +275,18 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
             }
         }
     }
-    
+
     // Display [libraries] section in Maven coordinate format
     if let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) {
         if !libraries.is_empty() {
             println!("\n{}", "Libraries:".yellow().bold());
             let mut lib_list: Vec<_> = libraries.iter().collect();
             lib_list.sort_by_key(|(k, _)| *k);
-            
+
             for (name, value) in lib_list {
                 let mut coordinate = String::new();
                 let mut version_str = String::new();
-                
+
                 // Parse the library specification
                 if let Some(str_value) = value.as_str() {
                     // Format 1: "group:artifact:version"
@@ -271,13 +307,14 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                             coordinate = format!("{}:{}", group, artifact);
                         }
                     }
-                    
+
                     // Get version
                     if let Some(version) = inline_table.get("version") {
                         if let Some(v) = version.as_str() {
                             version_str = v.to_string();
                         } else if let Some(version_ref) = version.as_inline_table() {
-                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str()) {
+                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str())
+                            {
                                 if let Some(resolved) = version_refs.get(ref_name) {
                                     version_str = resolved.clone();
                                 } else {
@@ -297,13 +334,14 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                             coordinate = format!("{}:{}", group, artifact);
                         }
                     }
-                    
+
                     // Get version
                     if let Some(version) = table.get("version") {
                         if let Some(v) = version.as_str() {
                             version_str = v.to_string();
                         } else if let Some(version_ref) = version.as_table() {
-                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str()) {
+                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str())
+                            {
                                 if let Some(resolved) = version_refs.get(ref_name) {
                                     version_str = resolved.clone();
                                 } else {
@@ -311,7 +349,8 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                                 }
                             }
                         } else if let Some(version_ref) = version.as_inline_table() {
-                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str()) {
+                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str())
+                            {
                                 if let Some(resolved) = version_refs.get(ref_name) {
                                     version_str = resolved.clone();
                                 } else {
@@ -321,7 +360,7 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                         }
                     }
                 }
-                
+
                 if !coordinate.is_empty() && !version_str.is_empty() {
                     println!("  {}", format!("{}:{}", coordinate, version_str).cyan());
                 } else if !coordinate.is_empty() {
@@ -332,18 +371,18 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
             }
         }
     }
-    
+
     // Display [plugins] section
     if let Some(plugins) = doc.get("plugins").and_then(|v| v.as_table()) {
         if !plugins.is_empty() {
             println!("\n{}", "Plugins:".yellow().bold());
             let mut plugin_list: Vec<_> = plugins.iter().collect();
             plugin_list.sort_by_key(|(k, _)| *k);
-            
+
             for (name, value) in plugin_list {
                 let mut plugin_id = String::new();
                 let mut version_str = String::new();
-                
+
                 if let Some(str_value) = value.as_str() {
                     plugin_id = name.to_string();
                     version_str = str_value.to_string();
@@ -353,12 +392,13 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                     } else {
                         plugin_id = name.to_string();
                     }
-                    
+
                     if let Some(version) = table.get("version") {
                         if let Some(v) = version.as_str() {
                             version_str = v.to_string();
                         } else if let Some(version_ref) = version.as_table() {
-                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str()) {
+                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str())
+                            {
                                 // Resolve version reference
                                 if let Some(resolved) = version_refs.get(ref_name) {
                                     version_str = resolved.clone();
@@ -369,7 +409,7 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
                         }
                     }
                 }
-                
+
                 if !version_str.is_empty() {
                     println!("  {}", format!("{}:{}", plugin_id, version_str).magenta());
                 } else {
@@ -378,11 +418,19 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
             }
         }
     }
-    
+
     // Summary
-    let library_count = doc.get("libraries").and_then(|v| v.as_table()).map(|t| t.len()).unwrap_or(0);
-    let plugin_count = doc.get("plugins").and_then(|v| v.as_table()).map(|t| t.len()).unwrap_or(0);
-    
+    let library_count = doc
+        .get("libraries")
+        .and_then(|v| v.as_table())
+        .map(|t| t.len())
+        .unwrap_or(0);
+    let plugin_count = doc
+        .get("plugins")
+        .and_then(|v| v.as_table())
+        .map(|t| t.len())
+        .unwrap_or(0);
+
     println!("\n{}", "Summary:".cyan().bold());
     println!("  {} libraries", library_count.to_string().yellow());
     println!("  {} plugins", plugin_count.to_string().yellow());
@@ -395,7 +443,10 @@ fn print_update_report(report: &UpdateReport) {
     }
 
     println!("\n{}", "Update Summary:".cyan().bold());
-    println!("{}", format!("Total updates: {}", report.total_updates()).green());
+    println!(
+        "{}",
+        format!("Total updates: {}", report.total_updates()).green()
+    );
 
     if !report.version_updates.is_empty() {
         println!("\n{}:", "Version updates".cyan());
