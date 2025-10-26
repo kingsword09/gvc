@@ -85,7 +85,7 @@ Summary:
 
 ### Update Dependencies
 
-Apply dependency updates:
+Apply dependency updates (stable versions only by default):
 
 ```bash
 gvc update
@@ -93,15 +93,19 @@ gvc update
 
 #### Options
 
-- `--stable-only` - Only update to stable versions (default behavior)
+- `--stable-only` - Only update to stable versions (enabled by default)
+- `--no-stable-only` - Allow updates to unstable versions (alpha, beta, RC)
 - `--no-git` - Skip Git operations (no branch/commit)
 - `--path`, `-p` - Specify project directory
 
 **Examples:**
 
 ```bash
-# Update to stable versions only (default)
-gvc update --stable-only
+# Update to stable versions only (default behavior)
+gvc update
+
+# Include unstable versions (alpha, beta, RC)
+gvc update --no-stable-only
 
 # Update without Git integration
 gvc update --no-git
@@ -339,6 +343,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - [ ] Async HTTP requests for concurrent version queries
 - [ ] Local caching of Maven metadata
 - [ ] Interactive TUI mode for selective updates
-- [ ] Support for Gradle plugin updates
+- [x] Support for Gradle plugin updates (Gradle Plugin Portal integration) ✅
 - [ ] Configuration file support (`.gvcrc`)
 - [ ] Better error messages with suggestions

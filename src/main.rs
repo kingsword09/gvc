@@ -13,6 +13,10 @@ use std::process;
 fn main() {
     let cli = Cli::parse();
 
+    if cli.verbose {
+        std::env::set_var("GVC_VERBOSE", "1");
+    }
+
     let result = match cli.command {
         Commands::Update {
             interactive,

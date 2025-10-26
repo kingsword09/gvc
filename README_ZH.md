@@ -85,7 +85,7 @@ Summary:
 
 ### 更新依赖
 
-应用依赖更新：
+应用依赖更新（默认仅更新稳定版本）：
 
 ```bash
 gvc update
@@ -93,15 +93,19 @@ gvc update
 
 #### 选项
 
-- `--stable-only` - 仅更新到稳定版本（默认行为）
+- `--stable-only` - 仅更新到稳定版本（默认启用）
+- `--no-stable-only` - 允许更新到不稳定版本（alpha、beta、RC）
 - `--no-git` - 跳过 Git 操作（不创建分支/提交）
 - `--path`, `-p` - 指定项目目录
 
 **示例：**
 
 ```bash
-# 仅更新到稳定版本（默认）
-gvc update --stable-only
+# 仅更新到稳定版本（默认行为）
+gvc update
+
+# 包含不稳定版本（alpha、beta、RC）
+gvc update --no-stable-only
 
 # 不使用 Git 集成更新
 gvc update --no-git
@@ -339,6 +343,6 @@ Apache-2.0
 - [ ] 异步 HTTP 请求以实现并发版本查询
 - [ ] Maven 元数据的本地缓存
 - [ ] 交互式 TUI 模式以进行选择性更新
-- [ ] 支持 Gradle 插件更新
+- [x] 支持 Gradle 插件更新（集成 Gradle Plugin Portal）✅
 - [ ] 配置文件支持（`.gvcrc`）
 - [ ] 更好的错误消息和建议

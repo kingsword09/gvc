@@ -1,5 +1,7 @@
 use crate::error::{GvcError, Result};
-use crate::maven::{parse_maven_coordinate, MavenRepository, VersionComparator};
+use crate::maven::{
+    parse_maven_coordinate, MavenRepository, PluginPortalClient, VersionComparator,
+};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
@@ -10,12 +12,14 @@ use toml_edit::{DocumentMut, Item, Value};
 /// DependencyUpdater handles the actual dependency version updates
 pub struct DependencyUpdater {
     maven_repo: MavenRepository,
+    plugin_portal: PluginPortalClient,
 }
 
 impl DependencyUpdater {
     pub fn new() -> Result<Self> {
         Ok(Self {
             maven_repo: MavenRepository::new()?,
+            plugin_portal: PluginPortalClient::new()?,
         })
     }
 
@@ -26,6 +30,7 @@ impl DependencyUpdater {
         } else {
             Ok(Self {
                 maven_repo: MavenRepository::with_repositories(repositories)?,
+                plugin_portal: PluginPortalClient::new()?,
             })
         }
     }
@@ -83,11 +88,9 @@ impl DependencyUpdater {
 
         let mut report = UpdateReport::new();
 
-        // Update [versions] section
-        if let Some(versions) = doc.get_mut("versions").and_then(|v| v.as_table_mut()) {
-            println!("\n{}", "Checking version updates...".cyan());
-            self.update_versions_section(versions, stable_only, &mut report)?;
-        }
+        // Update [versions] section - need to check with libraries context
+        println!("\n{}", "Checking version updates...".cyan());
+        self.update_versions_with_context(&mut doc, stable_only, &mut report)?;
 
         // Update [libraries] section
         if let Some(libraries) = doc.get_mut("libraries").and_then(|v| v.as_table_mut()) {
@@ -110,14 +113,38 @@ impl DependencyUpdater {
         Ok(report)
     }
 
-    fn update_versions_section(
+    fn update_versions_with_context(
         &self,
-        versions: &mut toml_edit::Table,
-        _stable_only: bool,
-        _report: &mut UpdateReport,
+        doc: &mut DocumentMut,
+        stable_only: bool,
+        report: &mut UpdateReport,
     ) -> Result<()> {
-        let keys: Vec<String> = versions.iter().map(|(k, _)| k.to_string()).collect();
-        let pb = ProgressBar::new(keys.len() as u64);
+        // Clone the data we need to read before mutating
+        let versions_data: Vec<(String, String)> =
+            if let Some(versions) = doc.get("versions").and_then(|v| v.as_table()) {
+                versions
+                    .iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.to_string(), s.to_string())))
+                    .collect()
+            } else {
+                return Ok(());
+            };
+
+        let libraries_data: Vec<(String, toml_edit::Item)> =
+            if let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) {
+                libraries
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect()
+            } else {
+                return Ok(());
+            };
+
+        if versions_data.is_empty() {
+            return Ok(());
+        }
+
+        let pb = ProgressBar::new(versions_data.len() as u64);
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")
@@ -125,16 +152,116 @@ impl DependencyUpdater {
                 .progress_chars("=>-"),
         );
 
-        for key in keys {
-            pb.set_message(format!("Checking {}", key));
+        for (version_key, current_version) in versions_data {
+            pb.set_message(format!("Checking {}", version_key));
 
-            // Version entries are typically direct string values
-            // We can't check these without knowing what they're for
-            // Skip for now - they'll be updated when we update libraries/plugins
+            // Find a library that uses this version reference
+            let mut representative_lib: Option<(String, String)> = None;
+
+            for (_lib_name, lib_value) in &libraries_data {
+                let uses_this_version = if let Some(inline_table) = lib_value.as_inline_table() {
+                    if let Some(version_item) = inline_table.get("version") {
+                        if let Some(version_ref) = version_item.as_inline_table() {
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else if let Some(table) = lib_value.as_table() {
+                    if let Some(version_item) = table.get("version") {
+                        if let Some(version_ref) = version_item.as_table() {
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
+                        } else if let Some(version_ref) = version_item.as_inline_table() {
+                            version_ref.get("ref").and_then(|v| v.as_str())
+                                == Some(version_key.as_str())
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if uses_this_version {
+                    let coordinate = if let Some(inline_table) = lib_value.as_inline_table() {
+                        if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
+                            parse_maven_coordinate(module)
+                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
+                        } else if let Some(group) =
+                            inline_table.get("group").and_then(|v| v.as_str())
+                        {
+                            inline_table
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .map(|name| (group.to_string(), name.to_string()))
+                        } else {
+                            None
+                        }
+                    } else if let Some(table) = lib_value.as_table() {
+                        if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
+                            parse_maven_coordinate(module)
+                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
+                        } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
+                            table
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .map(|name| (group.to_string(), name.to_string()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some((group, artifact)) = coordinate {
+                        representative_lib = Some((group, artifact));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((group, artifact)) = representative_lib {
+                if let Some(latest) =
+                    self.maven_repo
+                        .fetch_latest_version(&group, &artifact, stable_only)?
+                {
+                    if latest != current_version
+                        && VersionComparator::is_newer(&latest, &current_version)
+                    {
+                        // Update the version in the document
+                        if let Some(versions_mut) =
+                            doc.get_mut("versions").and_then(|v| v.as_table_mut())
+                        {
+                            *versions_mut.get_mut(&version_key).unwrap() =
+                                toml_edit::value(latest.as_str());
+                            report.add_version_update(version_key.clone(), current_version, latest);
+                        }
+                    }
+                }
+            }
 
             pb.inc(1);
         }
         pb.finish_and_clear();
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn update_versions_section(
+        &self,
+        versions: &mut toml_edit::Table,
+        stable_only: bool,
+        report: &mut UpdateReport,
+    ) -> Result<()> {
+        // This function is now deprecated - versions are updated via update_versions_with_context
+        // Keep it for compatibility but make it a no-op
+        let _ = (versions, stable_only, report);
         Ok(())
     }
 
@@ -549,14 +676,55 @@ impl DependencyUpdater {
     fn check_plugin_update(
         &self,
         plugin_value: &mut Item,
-        _stable_only: bool,
+        stable_only: bool,
     ) -> Result<Option<DependencyUpdate>> {
-        // Plugins are usually tables like { id = "plugin.id", version = "1.0" }
+        // Plugins are queried from Gradle Plugin Portal
+        // Format: { id = "org.jetbrains.kotlin.jvm", version = "1.9.0" }
         if let Some(table) = plugin_value.as_table_mut() {
-            if let Some(_id) = table.get("id").and_then(|v| v.as_str()) {
-                // Try to find the plugin in Gradle Plugin Portal
-                // For now, we'll skip plugin updates as they require special handling
-                // Plugins need to be looked up in the Gradle Plugin Portal, not Maven Central
+            let plugin_id = if let Some(id) = table.get("id").and_then(|v| v.as_str()) {
+                id.to_string()
+            } else {
+                return Ok(None);
+            };
+
+            // Get current version
+            let current_version = if let Some(version_item) = table.get("version") {
+                if let Some(v) = version_item.as_str() {
+                    v.to_string()
+                } else if let Some(version_table) = version_item.as_table() {
+                    // Handle version.ref case - skip for now as it's handled in versions section
+                    if version_table.get("ref").is_some() {
+                        return Ok(None);
+                    }
+                    return Ok(None);
+                } else if let Some(version_inline) = version_item.as_inline_table() {
+                    // Handle version.ref case - skip for now as it's handled in versions section
+                    if version_inline.get("ref").is_some() {
+                        return Ok(None);
+                    }
+                    return Ok(None);
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                return Ok(None);
+            };
+
+            // Fetch latest version from Plugin Portal
+            if let Some(latest) = self
+                .plugin_portal
+                .fetch_latest_plugin_version(&plugin_id, stable_only)?
+            {
+                if latest != current_version
+                    && VersionComparator::is_newer(&latest, &current_version)
+                {
+                    // Update the version
+                    *table.get_mut("version").unwrap() = Item::Value(Value::from(latest.as_str()));
+                    return Ok(Some(DependencyUpdate {
+                        old_version: current_version,
+                        new_version: latest,
+                    }));
+                }
             }
         }
         Ok(None)
