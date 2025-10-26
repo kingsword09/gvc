@@ -3,5 +3,5 @@ pub mod repository;
 pub mod version;
 
 pub use plugin_portal::PluginPortalClient;
-pub use repository::{parse_maven_coordinate, MavenRepository};
+pub use repository::{MavenRepository, parse_maven_coordinate};
 pub use version::VersionComparator;

@@ -1,6 +1,6 @@
 use crate::error::{GvcError, Result};
 use crate::maven::{
-    parse_maven_coordinate, MavenRepository, PluginPortalClient, VersionComparator,
+    MavenRepository, PluginPortalClient, VersionComparator, parse_maven_coordinate,
 };
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
