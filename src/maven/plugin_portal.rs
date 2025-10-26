@@ -18,7 +18,7 @@ impl PluginPortalClient {
             .timeout(Duration::from_secs(30))
             .user_agent("gvc/0.1.0")
             .build()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         Ok(Self { client })
     }
@@ -102,7 +102,7 @@ impl PluginPortalClient {
 
         let text = response
             .text()
-            .map_err(|e| GvcError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
         let metadata: MavenMetadata = from_str(&text).map_err(|e| {
             GvcError::TomlParsing(format!("Failed to parse plugin metadata: {}", e))

@@ -1,5 +1,9 @@
 # GVC (Gradle Version Catalog Updater)
 
+[![Crates.io](https://img.shields.io/crates/v/gvc.svg)](https://crates.io/crates/gvc)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+
 A fast, standalone CLI tool for checking and updating Gradle dependencies in version catalogs (`libs.versions.toml`).
 
 English | [简体中文](README_ZH.md)
@@ -19,16 +23,38 @@ English | [简体中文](README_ZH.md)
 
 ## Prerequisites
 
-- Rust 1.70+ (for building)
+- Rust stable (for building from source)
 - A Gradle project using version catalogs (`gradle/libs.versions.toml`)
 - Git (optional, for branch/commit features)
 - Internet connection (to query Maven repositories)
 
 ## Installation
 
+### From crates.io (Recommended)
+
+```bash
+cargo install gvc
+```
+
+### From GitHub Releases
+
+Download pre-built binaries from the [releases page](https://github.com/kingsword09/gvc/releases):
+
+```bash
+# Linux/macOS
+curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.0/gvc-x86_64-unknown-linux-gnu -o gvc
+chmod +x gvc
+sudo mv gvc /usr/local/bin/
+
+# Or use the install script
+curl -sSL https://raw.githubusercontent.com/kingsword09/gvc/main/install.sh | bash
+```
+
 ### From source
 
 ```bash
+git clone https://github.com/kingsword09/gvc.git
+cd gvc
 cargo install --path .
 ```
 
@@ -337,6 +363,33 @@ Apache-2.0
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/kingsword09/gvc.git
+   cd gvc
+   ```
+
+2. Build and test:
+   ```bash
+   cargo build
+   cargo test
+   cargo clippy
+   ```
+
+3. Run locally:
+   ```bash
+   cargo run -- check
+   cargo run -- update --no-git
+   ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Roadmap
 
