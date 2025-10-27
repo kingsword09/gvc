@@ -1,5 +1,5 @@
 use crate::agents::{DependencyUpdater, ProjectScannerAgent, UpdateReport, VersionControlAgent};
-use crate::error::Result;
+use crate::error::{GvcError, Result};
 use crate::gradle::GradleConfigParser;
 use colored::Colorize;
 use std::path::Path;
@@ -61,15 +61,15 @@ pub fn execute_update<P: AsRef<Path>>(
     println!("\n{}", "4. Updating dependencies...".yellow());
     let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
 
-    let report = if interactive {
-        println!(
-            "{}",
-            "Interactive mode not yet implemented, running automatic update...".yellow()
-        );
-        updater.update_version_catalog(&project_info.toml_path, stable_only)?
-    } else {
-        updater.update_version_catalog(&project_info.toml_path, stable_only)?
-    };
+    let report =
+        match updater.update_version_catalog(&project_info.toml_path, stable_only, interactive) {
+            Ok(report) => report,
+            Err(GvcError::UserCancelled) => {
+                println!("\n{}", "Update cancelled by user.".yellow());
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
 
     println!("{}", "✓ Update completed".green());
 
