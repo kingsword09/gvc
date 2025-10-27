@@ -1,5 +1,5 @@
 use crate::error::{GvcError, Result};
-use crate::maven::version::VersionComparator;
+use crate::maven::version::{Version, VersionComparator};
 use quick_xml::de::from_str;
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -65,6 +65,26 @@ impl PluginPortalClient {
             Ok(VersionComparator::get_latest(&versions, stable_only))
         } else {
             Ok(None)
+        }
+    }
+
+    /// Fetch available versions for a plugin, sorted from newest to oldest.
+    pub fn fetch_available_plugin_versions(&self, plugin_id: &str) -> Result<Vec<String>> {
+        let group = plugin_id;
+        let artifact = format!("{}.gradle.plugin", plugin_id);
+
+        if let Some(versions) = self.fetch_all_plugin_versions(group, &artifact)? {
+            if versions.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut parsed: Vec<Version> =
+                versions.into_iter().map(|v| Version::parse(&v)).collect();
+            parsed.sort();
+            parsed.dedup_by(|a, b| a.original == b.original);
+            Ok(parsed.into_iter().rev().map(|v| v.original).collect())
+        } else {
+            Ok(Vec::new())
         }
     }
 

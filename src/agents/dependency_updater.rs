@@ -1,9 +1,12 @@
 use crate::error::{GvcError, Result};
+use crate::maven::version::Version;
 use crate::maven::{
     MavenRepository, PluginPortalClient, VersionComparator, parse_maven_coordinate,
 };
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use regex::Regex;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
@@ -16,6 +19,8 @@ pub struct DependencyUpdater {
     maven_repo: MavenRepository,
     plugin_portal: PluginPortalClient,
 }
+
+const VERSION_PAGE_SIZE: usize = 10;
 
 impl DependencyUpdater {
     pub fn new() -> Result<Self> {
@@ -113,6 +118,97 @@ impl DependencyUpdater {
             fs::write(catalog_path, doc.to_string())
                 .map_err(|e| GvcError::TomlParsing(format!("Failed to write catalog: {}", e)))?;
         }
+
+        Ok(report)
+    }
+
+    pub fn update_targeted_dependency<P: AsRef<Path>>(
+        &self,
+        catalog_path: P,
+        stable_only: bool,
+        interactive: bool,
+        pattern: &str,
+    ) -> Result<UpdateReport> {
+        let catalog_path = catalog_path.as_ref();
+        let content = fs::read_to_string(catalog_path)
+            .map_err(|e| GvcError::TomlParsing(format!("Failed to read catalog: {}", e)))?;
+
+        let mut doc = content
+            .parse::<DocumentMut>()
+            .map_err(|e| GvcError::TomlParsing(format!("Failed to parse TOML: {}", e)))?;
+
+        let matcher = PatternMatcher::new(pattern)?;
+        let mut candidates = self.collect_target_candidates(&doc, &matcher)?;
+
+        if candidates.is_empty() {
+            println!(
+                "{}",
+                format!("No dependencies matched pattern '{}'.", pattern).yellow()
+            );
+            return Ok(UpdateReport::new());
+        }
+
+        let selected_index = Self::prompt_candidate_selection(&candidates)?;
+        let candidate = candidates.remove(selected_index);
+
+        let version_entries = self.fetch_versions_for_candidate(&candidate)?;
+        if version_entries.is_empty() {
+            println!(
+                "{}",
+                format!("No versions found for {}.", candidate.display_name()).yellow()
+            );
+            return Ok(UpdateReport::new());
+        }
+
+        let chosen_version = if interactive {
+            match Self::prompt_version_selection(&candidate, &version_entries)? {
+                Some(version) => version,
+                None => {
+                    println!("{}", "No changes applied.".yellow());
+                    return Ok(UpdateReport::new());
+                }
+            }
+        } else {
+            match Self::select_default_version(&version_entries, stable_only) {
+                Some(version) => {
+                    println!(
+                        "{}",
+                        format!(
+                            "Automatically selecting version {} for {}.",
+                            version.green().bold(),
+                            candidate.display_name()
+                        )
+                        .cyan()
+                    );
+                    version
+                }
+                None => {
+                    println!(
+                        "{}",
+                        format!(
+                            "No newer version available for {}.",
+                            candidate.display_name()
+                        )
+                        .yellow()
+                    );
+                    return Ok(UpdateReport::new());
+                }
+            }
+        };
+
+        if chosen_version == candidate.current_version {
+            println!(
+                "{}",
+                "Selected version matches the current version; nothing to update.".yellow()
+            );
+            return Ok(UpdateReport::new());
+        }
+
+        let mut report = UpdateReport::new();
+        Self::apply_target_update(&mut doc, &candidate, &chosen_version, &mut report)?;
+
+        fs::write(catalog_path, doc.to_string())
+            .map_err(|e| GvcError::TomlParsing(format!("Failed to write catalog: {}", e)))?;
 
         Ok(report)
     }
@@ -785,6 +881,520 @@ impl DependencyUpdater {
         }
         Ok(None)
     }
+
+    fn collect_target_candidates(
+        &self,
+        doc: &DocumentMut,
+        matcher: &PatternMatcher,
+    ) -> Result<Vec<TargetCandidate>> {
+        let mut candidates = Vec::new();
+
+        if let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) {
+            for (name, item) in libraries.iter() {
+                if matcher.matches(name) {
+                    if let Some(candidate) = Self::build_library_candidate(name, item) {
+                        candidates.push(candidate);
+                    }
+                }
+            }
+        }
+
+        if let Some(versions) = doc.get("versions").and_then(|v| v.as_table()) {
+            for (name, item) in versions.iter() {
+                if !matcher.matches(name) {
+                    continue;
+                }
+
+                if let Some(current_version) = item.as_str() {
+                    if let Some((group, artifact)) = Self::find_representative_coordinate(doc, name)
+                    {
+                        candidates.push(TargetCandidate {
+                            name: name.to_string(),
+                            current_version: current_version.to_string(),
+                            kind: TargetKind::VersionAlias { group, artifact },
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(plugins) = doc.get("plugins").and_then(|v| v.as_table()) {
+            for (name, item) in plugins.iter() {
+                if matcher.matches(name) {
+                    if let Some(candidate) = Self::build_plugin_candidate(name, item) {
+                        candidates.push(candidate);
+                    }
+                }
+            }
+        }
+
+        candidates.sort_by_key(|candidate| candidate.display_name());
+        Ok(candidates)
+    }
+
+    fn build_library_candidate(name: &str, item: &Item) -> Option<TargetCandidate> {
+        if let Some(str_value) = item.as_str() {
+            if let Some((group, artifact, Some(current_version))) =
+                parse_maven_coordinate(str_value)
+            {
+                return Some(TargetCandidate {
+                    name: name.to_string(),
+                    current_version,
+                    kind: TargetKind::Library { group, artifact },
+                });
+            }
+        } else if let Some(inline_table) = item.as_inline_table() {
+            let (group, artifact) =
+                if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
+                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
+                        (g, a)
+                    } else {
+                        return None;
+                    }
+                } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
+                    if let Some(name_value) = inline_table.get("name").and_then(|v| v.as_str()) {
+                        (group.to_string(), name_value.to_string())
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                };
+
+            if let Some(version_item) = inline_table.get("version") {
+                if let Some(current_version) = version_item.as_str() {
+                    return Some(TargetCandidate {
+                        name: name.to_string(),
+                        current_version: current_version.to_string(),
+                        kind: TargetKind::Library { group, artifact },
+                    });
+                }
+            }
+        } else if let Some(table) = item.as_table() {
+            let (group, artifact) =
+                if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
+                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
+                        (g, a)
+                    } else {
+                        return None;
+                    }
+                } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
+                    if let Some(name_value) = table.get("name").and_then(|v| v.as_str()) {
+                        (group.to_string(), name_value.to_string())
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                };
+
+            if let Some(version_item) = table.get("version") {
+                if let Some(current_version) = version_item.as_str() {
+                    return Some(TargetCandidate {
+                        name: name.to_string(),
+                        current_version: current_version.to_string(),
+                        kind: TargetKind::Library { group, artifact },
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    fn build_plugin_candidate(name: &str, item: &Item) -> Option<TargetCandidate> {
+        if let Some(table) = item.as_table() {
+            let plugin_id = table.get("id").and_then(|v| v.as_str())?;
+            if let Some(current_version) = table.get("version").and_then(|v| v.as_str()) {
+                return Some(TargetCandidate {
+                    name: name.to_string(),
+                    current_version: current_version.to_string(),
+                    kind: TargetKind::Plugin {
+                        plugin_id: plugin_id.to_string(),
+                    },
+                });
+            }
+        } else if let Some(inline_table) = item.as_inline_table() {
+            let plugin_id = inline_table.get("id").and_then(|v| v.as_str())?;
+            if let Some(current_version) = inline_table.get("version").and_then(|v| v.as_str()) {
+                return Some(TargetCandidate {
+                    name: name.to_string(),
+                    current_version: current_version.to_string(),
+                    kind: TargetKind::Plugin {
+                        plugin_id: plugin_id.to_string(),
+                    },
+                });
+            }
+        }
+
+        None
+    }
+
+    fn find_representative_coordinate(
+        doc: &DocumentMut,
+        version_key: &str,
+    ) -> Option<(String, String)> {
+        let libraries = doc.get("libraries").and_then(|v| v.as_table())?;
+        for (_name, lib_value) in libraries.iter() {
+            if Self::library_uses_version_ref(lib_value, version_key) {
+                if let Some((group, artifact)) = Self::extract_group_artifact(lib_value) {
+                    return Some((group, artifact));
+                }
+            }
+        }
+        None
+    }
+
+    fn library_uses_version_ref(lib_value: &Item, version_key: &str) -> bool {
+        if let Some(inline_table) = lib_value.as_inline_table() {
+            if let Some(version_item) = inline_table.get("version") {
+                if let Some(version_ref) = version_item.as_inline_table() {
+                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
+                }
+            }
+            false
+        } else if let Some(table) = lib_value.as_table() {
+            if let Some(version_item) = table.get("version") {
+                if let Some(version_ref) = version_item.as_table() {
+                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
+                } else if let Some(version_ref) = version_item.as_inline_table() {
+                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
+                }
+            }
+            false
+        } else {
+            false
+        }
+    }
+
+    fn extract_group_artifact(item: &Item) -> Option<(String, String)> {
+        if let Some(str_value) = item.as_str() {
+            if let Some((group, artifact, _)) = parse_maven_coordinate(str_value) {
+                return Some((group, artifact));
+            }
+        } else if let Some(inline_table) = item.as_inline_table() {
+            if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
+                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
+                    return Some((group, artifact));
+                }
+            } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
+                if let Some(name_value) = inline_table.get("name").and_then(|v| v.as_str()) {
+                    return Some((group.to_string(), name_value.to_string()));
+                }
+            }
+        } else if let Some(table) = item.as_table() {
+            if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
+                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
+                    return Some((group, artifact));
+                }
+            } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
+                if let Some(name_value) = table.get("name").and_then(|v| v.as_str()) {
+                    return Some((group.to_string(), name_value.to_string()));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn prompt_candidate_selection(candidates: &[TargetCandidate]) -> Result<usize> {
+        if candidates.len() == 1 {
+            println!(
+                "{}",
+                format!("Found one match: {}", candidates[0].describe_with_version()).cyan()
+            );
+            return Ok(0);
+        }
+
+        println!(
+            "{}",
+            format!("Found {} matching dependencies:", candidates.len()).cyan()
+        );
+        for (idx, candidate) in candidates.iter().enumerate() {
+            println!("  {:>2}) {}", idx + 1, candidate.describe_with_version());
+        }
+
+        loop {
+            print!(
+                "Select dependency to update [1-{}] (or 'q' to cancel): ",
+                candidates.len()
+            );
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let trimmed = input.trim();
+
+            if trimmed.eq_ignore_ascii_case("q") {
+                return Err(GvcError::UserCancelled);
+            }
+
+            if let Ok(choice) = trimmed.parse::<usize>() {
+                if choice >= 1 && choice <= candidates.len() {
+                    return Ok(choice - 1);
+                }
+            }
+
+            println!("{}", "Invalid selection. Please try again.".red());
+        }
+    }
+
+    fn fetch_versions_for_candidate(
+        &self,
+        candidate: &TargetCandidate,
+    ) -> Result<Vec<VersionEntry>> {
+        let versions = match &candidate.kind {
+            TargetKind::Library { group, artifact }
+            | TargetKind::VersionAlias { group, artifact } => {
+                self.maven_repo.fetch_available_versions(group, artifact)?
+            }
+            TargetKind::Plugin { plugin_id } => self
+                .plugin_portal
+                .fetch_available_plugin_versions(plugin_id)?,
+        };
+
+        let mut entries = Vec::with_capacity(versions.len());
+        for raw in versions {
+            let parsed = Version::parse(&raw);
+            let is_stable = parsed.is_stable();
+            let is_current = candidate.current_version == raw;
+            entries.push(VersionEntry {
+                value: raw,
+                is_stable,
+                is_current,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    fn select_default_version(versions: &[VersionEntry], stable_only: bool) -> Option<String> {
+        if stable_only {
+            if let Some(entry) = versions
+                .iter()
+                .find(|entry| entry.is_stable && !entry.is_current)
+            {
+                return Some(entry.value.clone());
+            }
+        }
+
+        versions
+            .iter()
+            .find(|entry| !entry.is_current)
+            .map(|entry| entry.value.clone())
+    }
+
+    fn prompt_version_selection(
+        candidate: &TargetCandidate,
+        versions: &[VersionEntry],
+    ) -> Result<Option<String>> {
+        if versions.is_empty() {
+            return Ok(None);
+        }
+
+        println!(
+            "\n{}",
+            format!("Available versions for {}:", candidate.display_name()).cyan()
+        );
+
+        let mut limit = versions.len().min(VERSION_PAGE_SIZE);
+        loop {
+            for (idx, entry) in versions.iter().take(limit).enumerate() {
+                let mut labels = Vec::new();
+                if entry.is_stable {
+                    labels.push("stable");
+                } else {
+                    labels.push("pre-release");
+                }
+                if entry.is_current {
+                    labels.push("current");
+                }
+                let label_str = if labels.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", labels.join(", "))
+                };
+
+                println!("  {:>2}) {}{}", idx + 1, entry.value.green(), label_str);
+            }
+
+            if limit < versions.len() {
+                println!("  m ) Show more versions");
+            }
+            println!("  s ) Skip update");
+            println!("  q ) Cancel");
+
+            print!("Select version [1-{} | m/s/q]: ", limit);
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let trimmed = input.trim().to_lowercase();
+
+            match trimmed.as_str() {
+                "q" => return Err(GvcError::UserCancelled),
+                "s" => return Ok(None),
+                "m" => {
+                    if limit >= versions.len() {
+                        println!("{}", "All versions are already displayed.".yellow());
+                    } else {
+                        limit = min(limit + VERSION_PAGE_SIZE, versions.len());
+                    }
+                }
+                _ => {
+                    if let Ok(choice) = trimmed.parse::<usize>() {
+                        if (1..=limit).contains(&choice) {
+                            let entry = &versions[choice - 1];
+                            if entry.is_current {
+                                println!(
+                                    "{}",
+                                    "Selected version matches current version; choose another or skip."
+                                        .yellow()
+                                );
+                                continue;
+                            }
+                            return Ok(Some(entry.value.clone()));
+                        }
+                    }
+                    println!("{}", "Invalid selection. Please try again.".red());
+                }
+            }
+        }
+    }
+
+    fn apply_target_update(
+        doc: &mut DocumentMut,
+        candidate: &TargetCandidate,
+        new_version: &str,
+        report: &mut UpdateReport,
+    ) -> Result<()> {
+        match &candidate.kind {
+            TargetKind::VersionAlias { .. } => {
+                Self::apply_version_alias(doc, &candidate.name, new_version)?;
+                report.add_version_update(
+                    candidate.name.clone(),
+                    candidate.current_version.clone(),
+                    new_version.to_string(),
+                );
+            }
+            TargetKind::Library { group, artifact } => {
+                let libraries = doc
+                    .get_mut("libraries")
+                    .and_then(|v| v.as_table_mut())
+                    .ok_or_else(|| {
+                        GvcError::TomlParsing("Missing [libraries] section".to_string())
+                    })?;
+
+                let item = libraries.get_mut(&candidate.name).ok_or_else(|| {
+                    GvcError::TomlParsing(format!(
+                        "Library '{}' not found in catalog",
+                        candidate.name
+                    ))
+                })?;
+
+                Self::apply_library_version(item, group, artifact, new_version)?;
+                report.add_library_update(
+                    candidate.name.clone(),
+                    candidate.current_version.clone(),
+                    new_version.to_string(),
+                );
+            }
+            TargetKind::Plugin { .. } => {
+                let plugins = doc
+                    .get_mut("plugins")
+                    .and_then(|v| v.as_table_mut())
+                    .ok_or_else(|| {
+                        GvcError::TomlParsing("Missing [plugins] section".to_string())
+                    })?;
+
+                let item = plugins.get_mut(&candidate.name).ok_or_else(|| {
+                    GvcError::TomlParsing(format!(
+                        "Plugin '{}' not found in catalog",
+                        candidate.name
+                    ))
+                })?;
+
+                Self::apply_plugin_version(item, new_version)?;
+                report.add_plugin_update(
+                    candidate.name.clone(),
+                    candidate.current_version.clone(),
+                    new_version.to_string(),
+                );
+            }
+        }
+
+        println!(
+            "{}",
+            format!(
+                "Updated {}: {} → {}",
+                candidate.display_name(),
+                candidate.current_version.red(),
+                new_version.green().bold()
+            )
+            .green()
+        );
+
+        Ok(())
+    }
+
+    fn apply_library_version(
+        item: &mut Item,
+        group: &str,
+        artifact: &str,
+        new_version: &str,
+    ) -> Result<()> {
+        if item.as_str().is_some() {
+            let new_coord = format!("{}:{}:{}", group, artifact, new_version);
+            *item = Item::Value(Value::from(new_coord.as_str()));
+            return Ok(());
+        }
+
+        if let Some(inline_table) = item.as_inline_table_mut() {
+            inline_table.insert("version", Value::from(new_version));
+            return Ok(());
+        }
+
+        if let Some(table) = item.as_table_mut() {
+            table.insert("version", Item::Value(Value::from(new_version)));
+            return Ok(());
+        }
+
+        Err(GvcError::TomlParsing(
+            "Unsupported library format for targeted update".to_string(),
+        ))
+    }
+
+    fn apply_version_alias(doc: &mut DocumentMut, name: &str, new_version: &str) -> Result<()> {
+        let versions = doc
+            .get_mut("versions")
+            .and_then(|v| v.as_table_mut())
+            .ok_or_else(|| GvcError::TomlParsing("Missing [versions] section".to_string()))?;
+
+        if versions.get(name).is_none() {
+            return Err(GvcError::TomlParsing(format!(
+                "Version alias '{}' not found",
+                name
+            )));
+        }
+
+        versions.insert(name, toml_edit::value(new_version));
+        Ok(())
+    }
+
+    fn apply_plugin_version(item: &mut Item, new_version: &str) -> Result<()> {
+        if let Some(table) = item.as_table_mut() {
+            table.insert("version", Item::Value(Value::from(new_version)));
+            return Ok(());
+        }
+
+        if let Some(inline_table) = item.as_inline_table_mut() {
+            inline_table.insert("version", Value::from(new_version));
+            return Ok(());
+        }
+
+        Err(GvcError::TomlParsing(
+            "Unsupported plugin definition format for targeted update".to_string(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -890,6 +1500,99 @@ impl Interaction {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct TargetCandidate {
+    name: String,
+    current_version: String,
+    kind: TargetKind,
+}
+
+impl TargetCandidate {
+    fn display_name(&self) -> String {
+        match &self.kind {
+            TargetKind::VersionAlias { group, artifact } => {
+                format!("version alias '{}' ({}:{})", self.name, group, artifact)
+            }
+            TargetKind::Library { group, artifact } => {
+                format!("library '{}' ({}:{})", self.name, group, artifact)
+            }
+            TargetKind::Plugin { plugin_id } => {
+                format!("plugin '{}' ({})", self.name, plugin_id)
+            }
+        }
+    }
+
+    fn describe_with_version(&self) -> String {
+        format!(
+            "{} — current version {}",
+            self.display_name(),
+            self.current_version
+        )
+    }
+}
+
+#[derive(Clone)]
+enum TargetKind {
+    VersionAlias { group: String, artifact: String },
+    Library { group: String, artifact: String },
+    Plugin { plugin_id: String },
+}
+
+#[derive(Clone)]
+struct VersionEntry {
+    value: String,
+    is_stable: bool,
+    is_current: bool,
+}
+
+struct PatternMatcher {
+    regex: Regex,
+}
+
+impl PatternMatcher {
+    fn new(pattern: &str) -> Result<Self> {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            return Err(GvcError::ProjectValidation(
+                "Filter pattern cannot be empty".to_string(),
+            ));
+        }
+
+        let adjusted = if trimmed.contains(['*', '?']) {
+            trimmed.to_string()
+        } else {
+            format!("*{}*", trimmed)
+        };
+
+        let regex = Self::compile_glob(&adjusted)?;
+        Ok(Self { regex })
+    }
+
+    fn matches(&self, value: &str) -> bool {
+        self.regex.is_match(value)
+    }
+
+    fn compile_glob(pattern: &str) -> Result<Regex> {
+        let mut regex = String::from("(?i)^");
+        for ch in pattern.chars() {
+            match ch {
+                '*' => regex.push_str(".*"),
+                '?' => regex.push('.'),
+                '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\' => {
+                    regex.push('\\');
+                    regex.push(ch);
+                }
+                _ => regex.push(ch),
+            }
+        }
+        regex.push('$');
+
+        Regex::new(&regex).map_err(|e| {
+            GvcError::ProjectValidation(format!("Invalid filter pattern '{}': {}", pattern, e))
+        })
     }
 }
 

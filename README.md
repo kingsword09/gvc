@@ -122,10 +122,13 @@ gvc update
 - `--stable-only` - Only update to stable versions (enabled by default)
 - `--no-stable-only` - Allow updates to unstable versions (alpha, beta, RC)
 - `-i`, `--interactive` - Review each proposed change before applying it
+- `--filter <glob>` - Limit updates to dependencies whose alias matches the glob (e.g. `*okhttp*`)
 - `--no-git` - Skip Git operations (no branch/commit)
 - `--path`, `-p` - Specify project directory
 
 Interactive mode will pause on each candidate upgrade, showing the old/new version and letting you accept, skip, apply all remaining changes, or cancel the run.
+
+When `--filter` is provided, GVC lists every matching library/version alias/plugin so you can pick a single target. Combine it with `-i/--interactive` to choose the exact version (stable or pre-release) you want to install.
 
 **Examples:**
 
@@ -139,12 +142,27 @@ gvc update --no-stable-only
 # Review each update before writing changes
 gvc update --interactive
 
+# Target a single dependency by alias pattern
+gvc update --filter "*okhttp*"
+
 # Update without Git integration
 gvc update --no-git
 
 # Update a specific project
 gvc update --path /path/to/project
 ```
+
+#### Selective Updates
+
+When you pass `--filter`, GVC narrows the scope to aliases that match your glob expression (case-insensitive). The CLI will:
+
+1. List every matching version alias, library, or plugin.
+2. Prompt you to pick the exact entry to change.
+3. Fetch available versions from the configured repositories.
+4. In interactive mode (`-i`), let you choose from recent stable and pre-release versions (use `m` to show more, `s` to skip, `q` to cancel).
+5. Without interactive mode, automatically pick the first newer version that respects the `--stable-only` flag, so you can script targeted upgrades.
+
+This makes it easy to bump a single dependency—even to a specific pre-release—without touching the rest of the catalog.
 
 ## How It Works
 
