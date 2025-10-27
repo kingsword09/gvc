@@ -3,9 +3,11 @@ use crate::maven::{
     MavenRepository, PluginPortalClient, VersionComparator, parse_maven_coordinate,
 };
 use colored::Colorize;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
 use toml_edit::{DocumentMut, Item, Value};
 
@@ -75,6 +77,7 @@ impl DependencyUpdater {
         &self,
         catalog_path: P,
         stable_only: bool,
+        interactive: bool,
     ) -> Result<UpdateReport> {
         let catalog_path = catalog_path.as_ref();
 
@@ -87,21 +90,22 @@ impl DependencyUpdater {
             .map_err(|e| GvcError::TomlParsing(format!("Failed to parse TOML: {}", e)))?;
 
         let mut report = UpdateReport::new();
+        let mut interaction = Interaction::new(interactive);
 
         // Update [versions] section - need to check with libraries context
         println!("\n{}", "Checking version updates...".cyan());
-        self.update_versions_with_context(&mut doc, stable_only, &mut report)?;
+        self.update_versions_with_context(&mut doc, stable_only, &mut report, &mut interaction)?;
 
         // Update [libraries] section
         if let Some(libraries) = doc.get_mut("libraries").and_then(|v| v.as_table_mut()) {
             println!("\n{}", "Checking library updates...".cyan());
-            self.update_libraries_section(libraries, stable_only, &mut report)?;
+            self.update_libraries_section(libraries, stable_only, &mut report, &mut interaction)?;
         }
 
         // Update [plugins] section
         if let Some(plugins) = doc.get_mut("plugins").and_then(|v| v.as_table_mut()) {
             println!("\n{}", "Checking plugin updates...".cyan());
-            self.update_plugins_section(plugins, stable_only, &mut report)?;
+            self.update_plugins_section(plugins, stable_only, &mut report, &mut interaction)?;
         }
 
         // Write back the updated document
@@ -118,6 +122,7 @@ impl DependencyUpdater {
         doc: &mut DocumentMut,
         stable_only: bool,
         report: &mut UpdateReport,
+        interaction: &mut Interaction,
     ) -> Result<()> {
         // Clone the data we need to read before mutating
         let versions_data: Vec<(String, String)> =
@@ -145,6 +150,9 @@ impl DependencyUpdater {
         }
 
         let pb = ProgressBar::new(versions_data.len() as u64);
+        if interaction.is_enabled() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")
@@ -233,8 +241,13 @@ impl DependencyUpdater {
                 {
                     if latest != current_version
                         && VersionComparator::is_newer(&latest, &current_version)
+                        && interaction.confirm(
+                            UpdateCategory::Version,
+                            &version_key,
+                            &current_version,
+                            &latest,
+                        )?
                     {
-                        // Update the version in the document
                         if let Some(versions_mut) =
                             doc.get_mut("versions").and_then(|v| v.as_table_mut())
                         {
@@ -517,9 +530,13 @@ impl DependencyUpdater {
         libraries: &mut toml_edit::Table,
         stable_only: bool,
         report: &mut UpdateReport,
+        interaction: &mut Interaction,
     ) -> Result<()> {
         let keys: Vec<String> = libraries.iter().map(|(k, _)| k.to_string()).collect();
         let pb = ProgressBar::new(keys.len() as u64);
+        if interaction.is_enabled() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")
@@ -531,7 +548,9 @@ impl DependencyUpdater {
             pb.set_message(format!("Checking {}", key));
 
             if let Some(lib_value) = libraries.get_mut(&key) {
-                if let Some(updated) = self.check_library_update(lib_value, stable_only)? {
+                if let Some(updated) =
+                    self.check_library_update(&key, lib_value, stable_only, interaction)?
+                {
                     report.add_library_update(
                         key.clone(),
                         updated.old_version,
@@ -548,8 +567,10 @@ impl DependencyUpdater {
 
     fn check_library_update(
         &self,
+        name: &str,
         lib_value: &mut Item,
         stable_only: bool,
+        interaction: &mut Interaction,
     ) -> Result<Option<DependencyUpdate>> {
         // Library can be a string like "group:artifact:version"
         // or a table like { module = "group:artifact", version = "1.0" }
@@ -563,11 +584,19 @@ impl DependencyUpdater {
                     self.maven_repo
                         .fetch_latest_version(&group, &artifact, stable_only)?
                 {
-                    if latest != current {
+                    let old_version = current;
+                    if latest != old_version
+                        && interaction.confirm(
+                            UpdateCategory::Library,
+                            name,
+                            old_version.as_str(),
+                            &latest,
+                        )?
+                    {
                         let new_coord = format!("{}:{}:{}", group, artifact, latest);
                         *lib_value = Item::Value(Value::from(new_coord.as_str()));
                         return Ok(Some(DependencyUpdate {
-                            old_version: current.to_string(),
+                            old_version,
                             new_version: latest,
                         }));
                     }
@@ -600,7 +629,14 @@ impl DependencyUpdater {
                         self.maven_repo
                             .fetch_latest_version(&group, &artifact, stable_only)?
                     {
-                        if latest != current_version {
+                        if latest != current_version
+                            && interaction.confirm(
+                                UpdateCategory::Library,
+                                name,
+                                &current_version,
+                                &latest,
+                            )?
+                        {
                             inline_table.insert("version", Value::from(latest.as_str()));
                             return Ok(Some(DependencyUpdate {
                                 old_version: current_version,
@@ -625,7 +661,14 @@ impl DependencyUpdater {
                                 &artifact,
                                 stable_only,
                             )? {
-                                if latest != current_version {
+                                if latest != current_version
+                                    && interaction.confirm(
+                                        UpdateCategory::Library,
+                                        name,
+                                        &current_version,
+                                        &latest,
+                                    )?
+                                {
                                     *version_item = Item::Value(Value::from(latest.as_str()));
                                     return Ok(Some(DependencyUpdate {
                                         old_version: current_version,
@@ -648,9 +691,13 @@ impl DependencyUpdater {
         plugins: &mut toml_edit::Table,
         stable_only: bool,
         report: &mut UpdateReport,
+        interaction: &mut Interaction,
     ) -> Result<()> {
         let keys: Vec<String> = plugins.iter().map(|(k, _)| k.to_string()).collect();
         let pb = ProgressBar::new(keys.len() as u64);
+        if interaction.is_enabled() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")
@@ -662,7 +709,9 @@ impl DependencyUpdater {
             pb.set_message(format!("Checking {}", key));
 
             if let Some(plugin_value) = plugins.get_mut(&key) {
-                if let Some(updated) = self.check_plugin_update(plugin_value, stable_only)? {
+                if let Some(updated) =
+                    self.check_plugin_update(&key, plugin_value, stable_only, interaction)?
+                {
                     report.add_plugin_update(key.clone(), updated.old_version, updated.new_version);
                 }
             }
@@ -675,8 +724,10 @@ impl DependencyUpdater {
 
     fn check_plugin_update(
         &self,
+        name: &str,
         plugin_value: &mut Item,
         stable_only: bool,
+        interaction: &mut Interaction,
     ) -> Result<Option<DependencyUpdate>> {
         // Plugins are queried from Gradle Plugin Portal
         // Format: { id = "org.jetbrains.kotlin.jvm", version = "1.9.0" }
@@ -717,8 +768,13 @@ impl DependencyUpdater {
             {
                 if latest != current_version
                     && VersionComparator::is_newer(&latest, &current_version)
+                    && interaction.confirm(
+                        UpdateCategory::Plugin,
+                        name,
+                        &current_version,
+                        &latest,
+                    )?
                 {
-                    // Update the version
                     *table.get_mut("version").unwrap() = Item::Value(Value::from(latest.as_str()));
                     return Ok(Some(DependencyUpdate {
                         old_version: current_version,
@@ -735,6 +791,106 @@ impl DependencyUpdater {
 struct DependencyUpdate {
     old_version: String,
     new_version: String,
+}
+
+#[derive(Copy, Clone)]
+enum UpdateCategory {
+    Version,
+    Library,
+    Plugin,
+}
+
+impl fmt::Display for UpdateCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            UpdateCategory::Version => "Version",
+            UpdateCategory::Library => "Library",
+            UpdateCategory::Plugin => "Plugin",
+        };
+        f.write_str(label)
+    }
+}
+
+struct Interaction {
+    enabled: bool,
+    apply_all: bool,
+}
+
+impl Interaction {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            apply_all: false,
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn confirm(
+        &mut self,
+        category: UpdateCategory,
+        name: &str,
+        old: &str,
+        new: &str,
+    ) -> Result<bool> {
+        if !self.enabled {
+            return Ok(true);
+        }
+
+        let category_label = format!("[{}]", category);
+        println!(
+            "\n{} {} {} {} to {}",
+            category_label.cyan().bold(),
+            name.white().bold(),
+            "from".dimmed(),
+            old.red(),
+            new.green().bold()
+        );
+
+        if self.apply_all {
+            println!("{}", "Auto-applying (previously selected 'all').".dimmed());
+            return Ok(true);
+        }
+
+        loop {
+            print!("{}", "Apply this update? [Y/n/a/q]: ".bold());
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let decision = input.trim().to_lowercase();
+
+            match decision.as_str() {
+                "" | "y" | "yes" => {
+                    return Ok(true);
+                }
+                "n" | "no" => {
+                    println!("{}", "Skipping this update.".dimmed());
+                    return Ok(false);
+                }
+                "a" | "all" => {
+                    println!(
+                        "{}",
+                        "Applying this and all remaining updates.".green().bold()
+                    );
+                    self.apply_all = true;
+                    return Ok(true);
+                }
+                "q" | "quit" => {
+                    println!("{}", "Stopping update process at user request.".yellow());
+                    return Err(GvcError::UserCancelled);
+                }
+                _ => {
+                    println!(
+                        "{}",
+                        "Please answer with y(es), n(o), a(ll), or q(quit).".red()
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -24,6 +24,9 @@ pub enum GvcError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Operation cancelled by user")]
+    UserCancelled,
 }
 
 pub type Result<T> = std::result::Result<T, GvcError>;
