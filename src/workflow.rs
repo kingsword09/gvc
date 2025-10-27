@@ -8,6 +8,7 @@ use std::path::Path;
 pub fn execute_update<P: AsRef<Path>>(
     project_path: P,
     interactive: bool,
+    filter: Option<String>,
     stable_only: bool,
     no_git: bool,
 ) -> Result<()> {
@@ -61,15 +62,32 @@ pub fn execute_update<P: AsRef<Path>>(
     println!("\n{}", "4. Updating dependencies...".yellow());
     let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
 
-    let report =
-        match updater.update_version_catalog(&project_info.toml_path, stable_only, interactive) {
+    let report = match filter {
+        Some(pattern) => match updater.update_targeted_dependency(
+            &project_info.toml_path,
+            stable_only,
+            interactive,
+            &pattern,
+        ) {
             Ok(report) => report,
             Err(GvcError::UserCancelled) => {
                 println!("\n{}", "Update cancelled by user.".yellow());
                 return Ok(());
             }
             Err(e) => return Err(e),
-        };
+        },
+        None => {
+            match updater.update_version_catalog(&project_info.toml_path, stable_only, interactive)
+            {
+                Ok(report) => report,
+                Err(GvcError::UserCancelled) => {
+                    println!("\n{}", "Update cancelled by user.".yellow());
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
 
     println!("{}", "✓ Update completed".green());
 

@@ -28,6 +28,10 @@ pub enum Commands {
         #[arg(short, long)]
         interactive: bool,
 
+        /// Filter dependencies by name using glob syntax (e.g. "*okhttp*")
+        #[arg(long, value_name = "GLOB")]
+        filter: Option<String>,
+
         /// Only update to stable versions (no alpha, beta, RC) - enabled by default
         #[arg(short, long, default_value_t = true)]
         stable_only: bool,

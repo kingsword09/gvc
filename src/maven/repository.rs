@@ -1,6 +1,6 @@
 use crate::error::{GvcError, Result};
 use crate::gradle::Repository as GradleRepository;
-use crate::maven::version::VersionComparator;
+use crate::maven::version::{Version, VersionComparator};
 use quick_xml::de::from_str;
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -106,6 +106,33 @@ impl MavenRepository {
 
         // No repository had this artifact
         Ok(None)
+    }
+
+    /// Fetch all available versions for a dependency, sorted from newest to oldest.
+    pub fn fetch_available_versions(&self, group: &str, artifact: &str) -> Result<Vec<String>> {
+        for repo in &self.repositories {
+            if !repo.group_filters.is_empty() && !Self::matches_filters(group, &repo.group_filters)
+            {
+                continue;
+            }
+
+            if let Ok(Some(versions)) =
+                self.fetch_all_versions_from_repository(&repo.url, group, artifact)
+            {
+                if versions.is_empty() {
+                    continue;
+                }
+
+                let mut parsed: Vec<Version> =
+                    versions.into_iter().map(|v| Version::parse(&v)).collect();
+                parsed.sort();
+                parsed.dedup_by(|a, b| a.original == b.original);
+                let ordered = parsed.into_iter().rev().map(|v| v.original).collect();
+                return Ok(ordered);
+            }
+        }
+
+        Ok(Vec::new())
     }
 
     /// Check if a group matches any of the regex filters
