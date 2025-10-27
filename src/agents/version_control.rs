@@ -1,5 +1,5 @@
 use crate::error::{GvcError, Result};
-use chrono::Local;
+use jiff::Zoned;
 use std::path::Path;
 use std::process::Command;
 
@@ -34,7 +34,7 @@ impl VersionControlAgent {
 
     /// Create a new branch for the update
     pub fn create_update_branch(&self) -> Result<String> {
-        let date = Local::now().format("%Y-%m-%d").to_string();
+        let date = Zoned::now().strftime("%Y-%m-%d").to_string();
         let branch_name = format!("deps/update-{}", date);
 
         // Create and checkout the branch

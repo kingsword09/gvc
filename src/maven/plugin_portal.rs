@@ -151,7 +151,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires network access
     fn test_fetch_kotlin_plugin_version() {
         let client = PluginPortalClient::new().unwrap();
         let version = client.fetch_latest_plugin_version("org.jetbrains.kotlin.jvm", true);
