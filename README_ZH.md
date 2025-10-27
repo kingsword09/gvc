@@ -121,8 +121,11 @@ gvc update
 
 - `--stable-only` - 仅更新到稳定版本（默认启用）
 - `--no-stable-only` - 允许更新到不稳定版本（alpha、beta、RC）
+- `-i`, `--interactive` - 在写入前逐项确认或跳过每个更新
 - `--no-git` - 跳过 Git 操作（不创建分支/提交）
 - `--path`, `-p` - 指定项目目录
+
+交互模式会在每个候选更新处暂停，展示旧版本与新版本，并允许你选择接受、跳过、应用剩余全部更新或直接取消。
 
 **示例：**
 
@@ -132,6 +135,9 @@ gvc update
 
 # 包含不稳定版本（alpha、beta、RC）
 gvc update --no-stable-only
+
+# 逐项确认每一个变更
+gvc update --interactive
 
 # 不使用 Git 集成更新
 gvc update --no-git

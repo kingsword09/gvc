@@ -121,8 +121,11 @@ gvc update
 
 - `--stable-only` - Only update to stable versions (enabled by default)
 - `--no-stable-only` - Allow updates to unstable versions (alpha, beta, RC)
+- `-i`, `--interactive` - Review each proposed change before applying it
 - `--no-git` - Skip Git operations (no branch/commit)
 - `--path`, `-p` - Specify project directory
+
+Interactive mode will pause on each candidate upgrade, showing the old/new version and letting you accept, skip, apply all remaining changes, or cancel the run.
 
 **Examples:**
 
@@ -132,6 +135,9 @@ gvc update
 
 # Include unstable versions (alpha, beta, RC)
 gvc update --no-stable-only
+
+# Review each update before writing changes
+gvc update --interactive
 
 # Update without Git integration
 gvc update --no-git
