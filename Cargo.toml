@@ -15,16 +15,16 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive", "color"] }
-toml = "0.8"
-toml_edit = "0.22"
+toml = "0.9.8"
+toml_edit = "0.23.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-thiserror = "1.0"
-chrono = "0.4"
-colored = "2.1"
-indicatif = "0.17"
+thiserror = "2.0.17"
+jiff = "0.2.15"
+colored = "3.0.0"
+indicatif = "0.18.1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 semver = "1.0"
-regex = "1.10"
-quick-xml = { version = "0.36", features = ["serialize"] }
+regex = "1.12.2"
+quick-xml = { version = "0.38.3", features = ["serialize"] }
