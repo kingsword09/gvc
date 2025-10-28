@@ -72,8 +72,10 @@ for contributors who want to understand or extend the existing automation.
 
 - `src/workflow.rs`: orchestrates agent calls, terminal output, and branching
   between `check`, `update`, `list`, and `add`; the `add` path also loads Gradle
-  repository definitions and verifies coordinates against Maven repositories or
-  the Gradle Plugin Portal before invoking `CatalogEditor`.
+  repository definitions, resolves `:latest` coordinates (preferring stable
+  releases unless `--no-stable-only` is specified), and verifies coordinates
+  against Maven repositories or the Gradle Plugin Portal before invoking
+  `CatalogEditor`.
 - `src/gradle/config_parser.rs`: extracts repository URLs from Gradle Kotlin or
   Groovy DSL files and falls back to sensible defaults (Maven Central, Google
   Maven, Gradle Plugin Portal).

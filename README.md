@@ -204,12 +204,16 @@ gvc add androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
 
 # Plugins: plugin.id:version (-p mirrors npm-style short flags)
 gvc add -p org.jetbrains.kotlin.jvm:1.9.24
+
+# Resolve the newest available version automatically
+gvc add com.squareup.okhttp3:okhttp:latest
+gvc add -p org.jetbrains.kotlin.android:latest --no-stable-only  # allow pre-releases when needed
 ```
 
 - GVC auto-generates catalog aliases and version keys (use `--alias` / `--version-alias` to override).
 - Library entries are written as `{ module = "group:artifact", version = { ref = "<alias>" } }`.
 - Plugin entries use `{ id = "plugin.id", version = { ref = "<alias>" } }`.
-- Before editing the catalog, GVC scans your configured repositories (for libraries) or the Gradle Plugin Portal (for plugins) to confirm the coordinate/version exists; the command aborts with a helpful error if it cannot be found.
+- Coordinates are verified upstream before writing; libraries query your configured repositories, plugins query the Gradle Plugin Portal. Use `--no-stable-only` to include pre-release versions when resolving `:latest`.
 - The `--path` flag works exactly as with other commands.
 
 ## How It Works

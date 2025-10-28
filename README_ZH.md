@@ -202,12 +202,16 @@ gvc add androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
 
 # 添加插件（格式：plugin.id:version，对应 -p 快捷写法）
 gvc add -p org.jetbrains.kotlin.jvm:1.9.24
+
+# 自动解析最新版本
+gvc add com.squareup.okhttp3:okhttp:latest
+gvc add -p org.jetbrains.kotlin.android:latest --no-stable-only  # 需要时允许预发布版本
 ```
 
 - GVC 会自动生成目录别名和版本键；若需自定义，可使用 `--alias` 或 `--version-alias`。
 - 库条目写入为 `{ module = "group:artifact", version = { ref = "<alias>" } }`。
 - 插件条目写入为 `{ id = "plugin.id", version = { ref = "<alias>" } }`。
-- 写入前会根据当前仓库配置（库）或 Gradle Plugin Portal（插件）校验坐标与版本是否存在，如果缺失会直接中止并给出提示。
+- 写入前会根据当前仓库配置（库）或 Gradle Plugin Portal（插件）校验坐标与版本是否存在；处理 `:latest` 时默认选择稳定版，可通过 `--no-stable-only` 允许预发布版本。
 - `--path` 参数的行为与其他命令一致。
 
 ## 工作原理
