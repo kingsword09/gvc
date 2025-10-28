@@ -50,4 +50,27 @@ pub enum Commands {
 
     /// List all dependencies in the version catalog
     List,
+
+    /// Add a dependency or plugin entry to the version catalog
+    Add {
+        /// Treat the coordinate as a plugin (plugin.id:version)
+        #[arg(short = 'p', long = "plugin", conflicts_with = "library")]
+        plugin: bool,
+
+        /// Treat the coordinate explicitly as a library (group:artifact:version)
+        #[arg(short = 'l', long = "library", conflicts_with = "plugin")]
+        library: bool,
+
+        /// Coordinate (library: group:artifact:version | plugin: id:version)
+        #[arg(value_name = "COORDINATE")]
+        coordinate: String,
+
+        /// Override the generated alias for the catalog entry
+        #[arg(long)]
+        alias: Option<String>,
+
+        /// Override the generated version alias to insert into [versions]
+        #[arg(long = "version-alias")]
+        version_alias: Option<String>,
+    },
 }

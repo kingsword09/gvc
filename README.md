@@ -1,10 +1,10 @@
-# GVC (Gradle Version Catalog Updater)
+# GVC (Gradle Version Catalog Manager)
 
 [![Crates.io](https://img.shields.io/crates/v/gvc.svg)](https://crates.io/crates/gvc)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-A fast, standalone CLI tool for checking and updating Gradle dependencies in version catalogs (`libs.versions.toml`).
+A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, and add dependencies or plugins with confidence.
 
 English | [简体中文](README_ZH.md)
 
@@ -13,10 +13,11 @@ English | [简体中文](README_ZH.md)
 - 🚀 **Direct Maven repository queries** - No Gradle runtime needed, pure Rust performance
 - 📦 **Multi-repository support** - Maven Central, Google Maven, custom repositories with smart filtering
 - 🎯 **Intelligent version detection** - Semantic versioning with stability filtering (alpha, beta, RC, dev)
-- 📋 **Three commands**:
+- 📋 **Four commands**:
   - `check` - View available updates without applying
   - `update` - Apply dependency updates
   - `list` - Display all dependencies in Maven coordinate format
+  - `add` - Insert dependencies or plugins directly into the catalog with version aliasing
 - 🔒 **Version reference support** - Handles `[versions]` table with automatic resolution
 - 🎨 **Beautiful CLI output** - Progress bars, colored output, clear summaries
 - ⚡ **Smart request optimization** - Repository filtering based on group patterns to minimize HTTP requests
@@ -84,6 +85,7 @@ gvc update --no-git    # apply upgrades without creating a Git branch
 | `gvc check` | Dry-run scan that validates the project and prints available dependency/plugin upgrades. | `--include-unstable` to add alpha/beta/RC versions; `--path` to target another project. |
 | `gvc update` | Applies catalog updates, honoring stability filters and optional Git integration. | `--interactive` for per-change prompts; `--filter "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
 | `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
+| `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-p/--plugin` targets plugins; `-l` makes the intent explicit; `--alias` / `--version-alias` override generated keys. |
 
 ### Check for Updates
 
@@ -191,6 +193,24 @@ When you pass `--filter`, GVC narrows the scope to aliases that match your glob 
 5. Without interactive mode, automatically pick the first newer version that respects the `--stable-only` flag, so you can script targeted upgrades.
 
 This makes it easy to bump a single dependency—even to a specific pre-release—without touching the rest of the catalog.
+
+### Add Dependencies or Plugins
+
+Create new catalog entries directly from Maven or plugin coordinates:
+
+```bash
+# Libraries: group:artifact:version (default target)
+gvc add androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
+
+# Plugins: plugin.id:version (-p mirrors npm-style short flags)
+gvc add -p org.jetbrains.kotlin.jvm:1.9.24
+```
+
+- GVC auto-generates catalog aliases and version keys (use `--alias` / `--version-alias` to override).
+- Library entries are written as `{ module = "group:artifact", version = { ref = "<alias>" } }`.
+- Plugin entries use `{ id = "plugin.id", version = { ref = "<alias>" } }`.
+- Before editing the catalog, GVC scans your configured repositories (for libraries) or the Gradle Plugin Portal (for plugins) to confirm the coordinate/version exists; the command aborts with a helpful error if it cannot be found.
+- The `--path` flag works exactly as with other commands.
 
 ## How It Works
 
