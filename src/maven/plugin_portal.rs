@@ -16,7 +16,7 @@ impl PluginPortalClient {
     pub fn new() -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("gvc/0.1.0")
+            .user_agent("gvc/0.1.1")
             .build()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 

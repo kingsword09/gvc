@@ -43,7 +43,7 @@ cargo install gvc
 
 ```bash
 # Linux/macOS
-curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.0/gvc-x86_64-unknown-linux-gnu -o gvc
+curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-x86_64-unknown-linux-gnu -o gvc
 chmod +x gvc
 sudo mv gvc /usr/local/bin/
 
