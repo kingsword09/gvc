@@ -1,10 +1,10 @@
 [package]
 name = "gvc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Kingsword kingsword09 <kingsword09@gmail.com>"]
-description = "A fast, standalone CLI tool for managing Gradle version catalog dependencies"
+description = "CLI manager for Gradle version catalogs—check, list, update, and add dependencies with automatic version aliases"
 license = "Apache-2.0"
 repository = "https://github.com/kingsword09/gvc"
 homepage = "https://github.com/kingsword09/gvc"
