@@ -5,7 +5,7 @@ use crate::agents::{
 };
 use crate::error::{GvcError, Result};
 use crate::gradle::{GradleConfigParser, Repository};
-use crate::maven::{MavenRepository, PluginPortalClient};
+use crate::maven::{MavenRepository, PluginPortalClient, VersionComparator};
 use colored::Colorize;
 use std::path::Path;
 
@@ -17,6 +17,7 @@ pub fn execute_add<P: AsRef<Path>>(
     coordinate: &str,
     alias_override: Option<&str>,
     version_alias_override: Option<&str>,
+    stable_only: bool,
 ) -> Result<()> {
     let project_path = project_path.as_ref();
     println!(
@@ -52,26 +53,34 @@ pub fn execute_add<P: AsRef<Path>>(
 
     let repositories = gradle_config.repositories.clone();
 
-    match target {
+    let resolved_coordinate = match target {
         AddTargetKind::Library => {
             let (group, artifact, version) = parse_library_coordinate(coordinate)?;
-            verify_library_version(&repositories, &group, &artifact, &version)?;
+            let resolved_version = resolve_version_for_library(
+                &repositories,
+                &group,
+                &artifact,
+                version,
+                stable_only,
+            )?;
+            format!("{}:{}:{}", group, artifact, resolved_version)
         }
         AddTargetKind::Plugin => {
             let (plugin_id, version) = parse_plugin_coordinate(coordinate)?;
-            verify_plugin_version(&plugin_id, &version)?;
+            let resolved_version = resolve_version_for_plugin(&plugin_id, version, stable_only)?;
+            format!("{}:{}", plugin_id, resolved_version)
         }
-    }
+    };
 
     println!("\n{}", "4. Writing to version catalog...".yellow());
     let editor = CatalogEditor::new(&project_info.toml_path);
 
     let result = match target {
         AddTargetKind::Library => {
-            editor.add_library(coordinate, alias_override, version_alias_override)
+            editor.add_library(&resolved_coordinate, alias_override, version_alias_override)
         }
         AddTargetKind::Plugin => {
-            editor.add_plugin(coordinate, alias_override, version_alias_override)
+            editor.add_plugin(&resolved_coordinate, alias_override, version_alias_override)
         }
     }?;
 
@@ -123,39 +132,102 @@ fn print_add_result(result: &AddResult) {
     }
 }
 
-fn verify_library_version(
+fn resolve_version_for_library(
     repositories: &[Repository],
     group: &str,
     artifact: &str,
-    version: &str,
-) -> Result<()> {
+    version: String,
+    stable_only: bool,
+) -> Result<String> {
     let repo = MavenRepository::with_repositories(repositories.to_vec())?;
     let available_versions = repo.fetch_available_versions(group, artifact)?;
 
-    if available_versions.iter().any(|v| v == version) {
-        println!("   {}", format!("✓ {group}:{artifact} @ {version}").green());
-        Ok(())
+    if available_versions.is_empty() {
+        return Err(GvcError::ProjectValidation(format!(
+            "No versions found for '{}:{}' in the configured repositories",
+            group, artifact
+        )));
+    }
+
+    let target_version = if version.eq_ignore_ascii_case("latest") {
+        match VersionComparator::get_latest(&available_versions, stable_only) {
+            Some(v) => v,
+            None => {
+                if stable_only {
+                    return Err(GvcError::ProjectValidation(format!(
+                        "No stable versions available for '{}:{}'. Re-run with --no-stable-only to allow pre-releases.",
+                        group, artifact
+                    )));
+                }
+                return Err(GvcError::ProjectValidation(format!(
+                    "No versions available for '{}:{}'",
+                    group, artifact
+                )));
+            }
+        }
+    } else if available_versions.iter().any(|v| v == &version) {
+        version
     } else {
-        Err(GvcError::ProjectValidation(format!(
+        return Err(GvcError::ProjectValidation(format!(
             "Version '{}' for '{}:{}' not found in configured repositories",
             version, group, artifact
-        )))
-    }
+        )));
+    };
+
+    println!(
+        "   {}",
+        format!("✓ {group}:{artifact} @ {target_version}").green()
+    );
+
+    Ok(target_version)
 }
 
-fn verify_plugin_version(plugin_id: &str, version: &str) -> Result<()> {
+fn resolve_version_for_plugin(
+    plugin_id: &str,
+    version: String,
+    stable_only: bool,
+) -> Result<String> {
     let client = PluginPortalClient::new()?;
     let available_versions = client.fetch_available_plugin_versions(plugin_id)?;
 
-    if available_versions.iter().any(|v| v == version) {
-        println!("   {}", format!("✓ plugin {plugin_id} @ {version}").green());
-        Ok(())
+    if available_versions.is_empty() {
+        return Err(GvcError::ProjectValidation(format!(
+            "No versions found for plugin '{}' on Gradle Plugin Portal",
+            plugin_id
+        )));
+    }
+
+    let target_version = if version.eq_ignore_ascii_case("latest") {
+        match VersionComparator::get_latest(&available_versions, stable_only) {
+            Some(v) => v,
+            None => {
+                if stable_only {
+                    return Err(GvcError::ProjectValidation(format!(
+                        "No stable versions available for plugin '{}'. Re-run with --no-stable-only to include pre-releases.",
+                        plugin_id
+                    )));
+                }
+                return Err(GvcError::ProjectValidation(format!(
+                    "No versions available for plugin '{}'",
+                    plugin_id
+                )));
+            }
+        }
+    } else if available_versions.iter().any(|v| v == &version) {
+        version
     } else {
-        Err(GvcError::ProjectValidation(format!(
+        return Err(GvcError::ProjectValidation(format!(
             "Version '{}' for plugin '{}' not found on Gradle Plugin Portal",
             version, plugin_id
-        )))
-    }
+        )));
+    };
+
+    println!(
+        "   {}",
+        format!("✓ plugin {plugin_id} @ {target_version}").green()
+    );
+
+    Ok(target_version)
 }
 
 /// Execute the update workflow

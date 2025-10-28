@@ -61,7 +61,7 @@ pub enum Commands {
         #[arg(short = 'l', long = "library", conflicts_with = "plugin")]
         library: bool,
 
-        /// Coordinate (library: group:artifact:version | plugin: id:version)
+        /// Coordinate (library: group:artifact:version|latest, plugin: id:version|latest)
         #[arg(value_name = "COORDINATE")]
         coordinate: String,
 
@@ -72,5 +72,9 @@ pub enum Commands {
         /// Override the generated version alias to insert into [versions]
         #[arg(long = "version-alias")]
         version_alias: Option<String>,
+
+        /// Prefer stable versions when resolving `:latest` coordinates (use `--no-stable-only` to include pre-releases)
+        #[arg(long, default_value_t = true)]
+        stable_only: bool,
     },
 }

@@ -36,6 +36,7 @@ fn main() {
             coordinate,
             alias,
             version_alias,
+            stable_only,
         } => workflow::execute_add(
             &cli.path,
             plugin,
@@ -43,6 +44,7 @@ fn main() {
             &coordinate,
             alias.as_deref(),
             version_alias.as_deref(),
+            stable_only,
         ),
     };
 
