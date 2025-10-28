@@ -85,7 +85,7 @@ gvc update --no-git    # apply upgrades without creating a Git branch
 | `gvc check` | Dry-run scan that validates the project and prints available dependency/plugin upgrades. | `--include-unstable` to add alpha/beta/RC versions; `--path` to target another project. |
 | `gvc update` | Applies catalog updates, honoring stability filters and optional Git integration. | `--interactive` for per-change prompts; `--filter "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
 | `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
-| `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-p/--plugin` targets plugins; `-l` makes the intent explicit; `--alias` / `--version-alias` override generated keys. |
+| `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-p/--plugin` targets plugins; `--no-stable-only` allows pre-releases when resolving `:latest`; `--alias` / `--version-alias` override generated keys. |
 
 ### Check for Updates
 

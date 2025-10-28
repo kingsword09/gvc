@@ -85,7 +85,7 @@ gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
 | `gvc check` | 验证项目并打印可用的依赖/插件更新（不会写入文件）。 | `--include-unstable` 展示预发布版本；`--path` 指定其他项目。 |
 | `gvc update` | 应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--interactive` 逐项确认；`--filter "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
 | `gvc list` | 以 Maven 坐标格式展示版本目录中的所有条目。 | `--path` 指向其他项目。 |
-| `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-p/--plugin` 指定插件；`-l` 可显式声明库；`--alias` / `--version-alias` 自定义键名。 |
+| `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-p/--plugin` 指定插件；`--no-stable-only` 解析 `:latest` 时允许预发布版本；`--alias` / `--version-alias` 自定义键名。 |
 
 ### 检查更新
 
