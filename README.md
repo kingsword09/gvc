@@ -65,7 +65,25 @@ cargo build --release
 # Binary will be in target/release/gvc
 ```
 
+## Quick Start
+
+```bash
+gvc check              # validate project and list available upgrades
+gvc update --no-git    # apply upgrades without creating a Git branch
+```
+
+- Use `--path /path/to/project` if the catalog lives elsewhere.
+- Pass `--verbose` (or export `GVC_VERBOSE=1`) to inspect HTTP traffic, caching, and other diagnostics.
+
 ## Usage
+
+### Command Reference
+
+| Command | Purpose | Key Flags |
+| --- | --- | --- |
+| `gvc check` | Dry-run scan that validates the project and prints available dependency/plugin upgrades. | `--include-unstable` to add alpha/beta/RC versions; `--path` to target another project. |
+| `gvc update` | Applies catalog updates, honoring stability filters and optional Git integration. | `--interactive` for per-change prompts; `--filter "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
+| `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
 
 ### Check for Updates
 
@@ -128,7 +146,17 @@ gvc update
 
 Interactive mode will pause on each candidate upgrade, showing the old/new version and letting you accept, skip, apply all remaining changes, or cancel the run.
 
+#### Targeted Updates
+
 When `--filter` is provided, GVC lists every matching library/version alias/plugin so you can pick a single target. Combine it with `-i/--interactive` to choose the exact version (stable or pre-release) you want to install.
+
+```bash
+# Review and pick a version for dependencies with "okhttp" in their alias
+gvc update --filter "*okhttp*" --interactive
+```
+
+- Skip the prompt by omitting `--interactive`; GVC selects the newest version that satisfies the stability rules.
+- Include pre-releases with `--no-stable-only` when you want to evaluate beta/RC builds.
 
 **Examples:**
 
@@ -214,6 +242,15 @@ GVC automatically filters repository requests based on dependency group:
 - **Custom Repositories** - Respects `mavenContent.includeGroupByRegex` patterns
 
 This significantly reduces unnecessary HTTP requests and speeds up checks.
+
+## Architecture Overview
+
+- Workflows in `src/workflow.rs` orchestrate CLI commands, progress output, and Git handoff.
+- Agents encapsulate core responsibilities:
+  - `ProjectScannerAgent` validates Gradle structure and locates `libs.versions.toml`.
+  - `DependencyUpdater` reads, evaluates, and mutates the catalog with repository-aware version lookups.
+  - `VersionControlAgent` guards Git cleanliness and creates update branches plus commits when enabled.
+- See [AGENTS.md](AGENTS.md) for a deeper dive into responsibilities, extension tips, and developer checklists.
 
 ## Project Requirements
 
@@ -380,6 +417,8 @@ cargo run -- list
 cargo run -- update --no-git
 ```
 
+See [AGENTS.md](AGENTS.md) for an in-depth guide to the agent modules that power these workflows.
+
 ## License
 
 Apache-2.0
@@ -400,7 +439,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
    ```bash
    cargo build
    cargo test
-   cargo clippy
+   cargo fmt
+   cargo clippy --all-targets --all-features
    ```
 
 3. Run locally:

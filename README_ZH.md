@@ -65,7 +65,25 @@ cargo build --release
 # 二进制文件位于 target/release/gvc
 ```
 
+## 快速上手
+
+```bash
+gvc check              # 验证项目并列出可用更新
+gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
+```
+
+- 如果版本目录不在当前目录，请使用 `--path /path/to/project`。
+- 调试或开发时，可使用 `--verbose` 或设置环境变量 `GVC_VERBOSE=1` 以查看 HTTP 请求、缓存等详细日志。
+
 ## 使用
+
+### 命令速查表
+
+| 命令 | 作用 | 常用参数 |
+| --- | --- | --- |
+| `gvc check` | 验证项目并打印可用的依赖/插件更新（不会写入文件）。 | `--include-unstable` 展示预发布版本；`--path` 指定其他项目。 |
+| `gvc update` | 应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--interactive` 逐项确认；`--filter "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
+| `gvc list` | 以 Maven 坐标格式展示版本目录中的所有条目。 | `--path` 指向其他项目。 |
 
 ### 检查更新
 
@@ -164,6 +182,14 @@ gvc update --path /path/to/project
 
 这样就能在不影响其他依赖的情况下，精确更新单个库或插件，甚至指定升级到某个预发布版本。
 
+```bash
+# 为别名中包含 "okhttp" 的依赖挑选目标版本
+gvc update --filter "*okhttp*" --interactive
+```
+
+- 不加 `--interactive` 时，GVC 会按照稳定性规则自动选择最新版本，适合脚本化使用。
+- 想评估 beta/RC 等预发布版本时，可结合 `--no-stable-only`。
+
 ## 工作原理
 
 GVC 直接查询 Maven 仓库，无需 Gradle：
@@ -214,6 +240,15 @@ GVC 根据依赖组自动过滤仓库请求：
 - **自定义仓库** - 遵守 `mavenContent.includeGroupByRegex` 模式
 
 这显著减少了不必要的 HTTP 请求并加快了检查速度。
+
+## 架构概览
+
+- `src/workflow.rs` 负责编排 CLI 命令、显示进度并处理 Git 交互。
+- agent 模块聚焦特定职责：
+  - `ProjectScannerAgent` 验证 Gradle 结构并定位 `libs.versions.toml`。
+  - `DependencyUpdater` 解析、检查并更新版本目录，同时利用仓库信息解析版本。
+  - `VersionControlAgent` 确保工作区干净，在启用时创建更新分支与提交。
+- 若需深入了解 agent 之间的协作与扩展方式，请阅读 [AGENTS.md](AGENTS.md)。
 
 ## 项目要求
 
@@ -380,6 +415,8 @@ cargo run -- list
 cargo run -- update --no-git
 ```
 
+想了解这些工作流背后的 agent 设计，请参阅 [AGENTS.md](AGENTS.md)。
+
 ## 许可证
 
 Apache-2.0
@@ -400,7 +437,8 @@ Apache-2.0
    ```bash
    cargo build
    cargo test
-   cargo clippy
+   cargo fmt
+   cargo clippy --all-targets --all-features
    ```
 
 3. 本地运行：
