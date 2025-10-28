@@ -74,7 +74,7 @@ pub enum Commands {
         version_alias: Option<String>,
 
         /// Prefer stable versions when resolving `:latest` coordinates (use `--no-stable-only` to include pre-releases)
-        #[arg(long, default_value_t = true)]
+        #[arg(long = "no-stable-only", action = clap::ArgAction::SetFalse, default_value_t = true)]
         stable_only: bool,
     },
 }

@@ -67,13 +67,13 @@ impl CatalogEditor {
             }
         }
 
-        {
+        let updated_alias = {
             let versions = doc["versions"]
                 .as_table_mut()
                 .ok_or_else(|| GvcError::TomlParsing("Failed to access [versions] table".into()))?;
 
-            upsert_version_alias(versions, &version_alias, version)?;
-        }
+            upsert_version_alias(versions, &version_alias, version.clone())?
+        };
 
         let libraries = doc["libraries"]
             .as_table_mut()
@@ -88,6 +88,13 @@ impl CatalogEditor {
         entry.fmt();
 
         libraries.insert(&alias, Item::Value(Value::InlineTable(entry)));
+
+        if updated_alias {
+            println!(
+                "   Updated version alias '{}' with value '{}'",
+                version_alias, version
+            );
+        }
 
         self.write_document(&doc)?;
 
@@ -137,13 +144,13 @@ impl CatalogEditor {
             }
         }
 
-        {
+        let updated_alias = {
             let versions = doc["versions"]
                 .as_table_mut()
                 .ok_or_else(|| GvcError::TomlParsing("Failed to access [versions] table".into()))?;
 
-            upsert_version_alias(versions, &version_alias, version)?;
-        }
+            upsert_version_alias(versions, &version_alias, version.clone())?
+        };
 
         let plugins = doc["plugins"]
             .as_table_mut()
@@ -158,6 +165,13 @@ impl CatalogEditor {
         entry.fmt();
 
         plugins.insert(&alias, Item::Value(Value::InlineTable(entry)));
+
+        if updated_alias {
+            println!(
+                "   Updated version alias '{}' with value '{}'",
+                version_alias, version
+            );
+        }
 
         self.write_document(&doc)?;
 
@@ -205,16 +219,15 @@ fn ensure_section(doc: &mut DocumentMut, name: &str) {
     }
 }
 
-fn upsert_version_alias(table: &mut toml_edit::Table, key: &str, version: String) -> Result<()> {
-    if let Some(existing) = table.get(key) {
+fn upsert_version_alias(table: &mut Table, key: &str, version: String) -> Result<bool> {
+    if let Some(existing) = table.get_mut(key) {
         if let Some(existing_version) = existing.as_str() {
-            if existing_version != version {
-                return Err(GvcError::ProjectValidation(format!(
-                    "Version alias '{}' already exists as '{}'",
-                    key, existing_version
-                )));
+            if existing_version == version {
+                return Ok(false);
             }
-            return Ok(());
+
+            *existing = Item::Value(Value::from(version));
+            return Ok(true);
         }
 
         return Err(GvcError::ProjectValidation(format!(
@@ -224,7 +237,7 @@ fn upsert_version_alias(table: &mut toml_edit::Table, key: &str, version: String
     }
 
     table.insert(key, value(version));
-    Ok(())
+    Ok(true)
 }
 
 fn library_exists(table: &Table, group: &str, artifact: &str) -> bool {
