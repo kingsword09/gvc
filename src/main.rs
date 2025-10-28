@@ -30,6 +30,20 @@ fn main() {
             workflow::execute_check(&cli.path, !include_unstable)
         }
         Commands::List => workflow::execute_list(&cli.path),
+        Commands::Add {
+            plugin,
+            library,
+            coordinate,
+            alias,
+            version_alias,
+        } => workflow::execute_add(
+            &cli.path,
+            plugin,
+            library,
+            &coordinate,
+            alias.as_deref(),
+            version_alias.as_deref(),
+        ),
     };
 
     if let Err(e) = result {

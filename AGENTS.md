@@ -44,6 +44,19 @@ for contributors who want to understand or extend the existing automation.
 - Shares pure read path (`check_for_updates`) with update logic to avoid code
   duplication.
 
+### CatalogEditor (`src/agents/catalog_editor.rs`)
+
+- Lightweight helper dedicated to structural edits on `libs.versions.toml`.
+- Provides `add_library` and `add_plugin` for the `gvc add` workflow, including
+  alias generation and version-key insertion.
+- Normalizes catalog aliases (filters common prefixes, deduplicates tokens)
+  so new entries follow the same naming style as existing ones.
+- Ensures both `[versions]` and the target section exist, creating them when
+  needed before persisting the updated document.
+- Guards against duplicate aliases or pre-existing coordinates in the catalog;
+  remote resolution is performed in the workflow before these helpers persist
+  any edits.
+
 ### VersionControlAgent (`src/agents/version_control.rs`)
 
 - Wraps shell `git` commands to keep the CLI logic cohesive.
@@ -58,7 +71,9 @@ for contributors who want to understand or extend the existing automation.
 ## Supporting Modules
 
 - `src/workflow.rs`: orchestrates agent calls, terminal output, and branching
-  between `check`, `update`, and `list`.
+  between `check`, `update`, `list`, and `add`; the `add` path also loads Gradle
+  repository definitions and verifies coordinates against Maven repositories or
+  the Gradle Plugin Portal before invoking `CatalogEditor`.
 - `src/gradle/config_parser.rs`: extracts repository URLs from Gradle Kotlin or
   Groovy DSL files and falls back to sensible defaults (Maven Central, Google
   Maven, Gradle Plugin Portal).

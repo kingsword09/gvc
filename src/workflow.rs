@@ -1,8 +1,162 @@
-use crate::agents::{DependencyUpdater, ProjectScannerAgent, UpdateReport, VersionControlAgent};
+use crate::agents::catalog_editor::{parse_library_coordinate, parse_plugin_coordinate};
+use crate::agents::{
+    AddResult, AddTargetKind, CatalogEditor, DependencyUpdater, ProjectScannerAgent, UpdateReport,
+    VersionControlAgent,
+};
 use crate::error::{GvcError, Result};
-use crate::gradle::GradleConfigParser;
+use crate::gradle::{GradleConfigParser, Repository};
+use crate::maven::{MavenRepository, PluginPortalClient};
 use colored::Colorize;
 use std::path::Path;
+
+/// Add a new dependency or plugin entry to the version catalog
+pub fn execute_add<P: AsRef<Path>>(
+    project_path: P,
+    plugin_flag: bool,
+    _library_flag: bool,
+    coordinate: &str,
+    alias_override: Option<&str>,
+    version_alias_override: Option<&str>,
+) -> Result<()> {
+    let project_path = project_path.as_ref();
+    println!(
+        "{}",
+        "Adding entry to Gradle version catalog...".cyan().bold()
+    );
+
+    println!("\n{}", "1. Validating project structure...".yellow());
+    let scanner = ProjectScannerAgent::new(project_path);
+    let project_info = scanner.validate()?;
+    println!("{}", "✓ Project structure is valid".green());
+
+    let (target, coordinate) = resolve_add_target(plugin_flag, coordinate)?;
+
+    println!(
+        "\n{}",
+        "2. Reading Gradle repository configuration...".yellow()
+    );
+    let gradle_parser = GradleConfigParser::new(project_path);
+    let gradle_config = gradle_parser.parse()?;
+    println!(
+        "   Found {} repositories:",
+        gradle_config.repositories.len()
+    );
+    for repo in &gradle_config.repositories {
+        println!("   • {} ({})", repo.name.bright_cyan(), repo.url.dimmed());
+    }
+
+    println!(
+        "\n{}",
+        "3. Validating coordinate against remote repositories...".yellow()
+    );
+
+    let repositories = gradle_config.repositories.clone();
+
+    match target {
+        AddTargetKind::Library => {
+            let (group, artifact, version) = parse_library_coordinate(coordinate)?;
+            verify_library_version(&repositories, &group, &artifact, &version)?;
+        }
+        AddTargetKind::Plugin => {
+            let (plugin_id, version) = parse_plugin_coordinate(coordinate)?;
+            verify_plugin_version(&plugin_id, &version)?;
+        }
+    }
+
+    println!("\n{}", "4. Writing to version catalog...".yellow());
+    let editor = CatalogEditor::new(&project_info.toml_path);
+
+    let result = match target {
+        AddTargetKind::Library => {
+            editor.add_library(coordinate, alias_override, version_alias_override)
+        }
+        AddTargetKind::Plugin => {
+            editor.add_plugin(coordinate, alias_override, version_alias_override)
+        }
+    }?;
+
+    print_add_result(&result);
+
+    println!("\n{}", "✨ Entry added successfully!".green().bold());
+
+    Ok(())
+}
+
+fn resolve_add_target(plugin_flag: bool, coordinate: &str) -> Result<(AddTargetKind, &str)> {
+    if coordinate.trim().is_empty() {
+        return Err(GvcError::ProjectValidation(
+            "Coordinate is required. Example: gvc add group:artifact:version".into(),
+        ));
+    }
+
+    let target = if plugin_flag {
+        AddTargetKind::Plugin
+    } else {
+        AddTargetKind::Library
+    };
+
+    Ok((target, coordinate))
+}
+
+fn print_add_result(result: &AddResult) {
+    match result.target {
+        AddTargetKind::Library => {
+            println!(
+                "{}",
+                format!(
+                    "✓ Library '{}' added with version alias '{}'",
+                    result.alias, result.version_alias
+                )
+                .green()
+            );
+        }
+        AddTargetKind::Plugin => {
+            println!(
+                "{}",
+                format!(
+                    "✓ Plugin '{}' added with version alias '{}'",
+                    result.alias, result.version_alias
+                )
+                .green()
+            );
+        }
+    }
+}
+
+fn verify_library_version(
+    repositories: &[Repository],
+    group: &str,
+    artifact: &str,
+    version: &str,
+) -> Result<()> {
+    let repo = MavenRepository::with_repositories(repositories.to_vec())?;
+    let available_versions = repo.fetch_available_versions(group, artifact)?;
+
+    if available_versions.iter().any(|v| v == version) {
+        println!("   {}", format!("✓ {group}:{artifact} @ {version}").green());
+        Ok(())
+    } else {
+        Err(GvcError::ProjectValidation(format!(
+            "Version '{}' for '{}:{}' not found in configured repositories",
+            version, group, artifact
+        )))
+    }
+}
+
+fn verify_plugin_version(plugin_id: &str, version: &str) -> Result<()> {
+    let client = PluginPortalClient::new()?;
+    let available_versions = client.fetch_available_plugin_versions(plugin_id)?;
+
+    if available_versions.iter().any(|v| v == version) {
+        println!("   {}", format!("✓ plugin {plugin_id} @ {version}").green());
+        Ok(())
+    } else {
+        Err(GvcError::ProjectValidation(format!(
+            "Version '{}' for plugin '{}' not found on Gradle Plugin Portal",
+            version, plugin_id
+        )))
+    }
+}
 
 /// Execute the update workflow
 pub fn execute_update<P: AsRef<Path>>(
