@@ -1,0 +1,38 @@
+PackageIdentifier: GVC.GVC
+PackageVersion: 0.1.1
+PackageLocale: en-US
+Publisher: kingsword09
+PackageName: GVC
+PackageDescription: CLI manager for Gradle version catalogs—check, list, update, and add dependencies with automatic version aliases
+License: Apache-2.0
+LicenseUrl: https://github.com/kingsword09/gvc/blob/main/LICENSE
+Copyright: Copyright (c) 2025 kingsword09
+CopyrightUrl: https://github.com/kingsword09/gvc/blob/main/LICENSE
+ShortDescription: Gradle Version Catalog Manager
+Description: |
+  A fast, standalone CLI for managing Gradle version catalogs (libs.versions.toml): check, list, update, and add dependencies or plugins with confidence.
+  Direct Maven repository queries - No Gradle runtime needed, pure Rust performance.
+Homepage: https://github.com/kingsword09/gvc
+Repository: https://github.com/kingsword09/gvc
+Tags:
+  - gradle
+  - dependency
+  - version
+  - catalog
+  - cli
+  - development-tools
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-x86_64-pc-windows-msvc.zip
+    InstallerSha256: REPLACE_WITH_WINDOWS_SHA256
+    NestedInstallerType: portable
+    NestedInstallerPath: gvc.exe
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-aarch64-pc-windows-msvc.zip
+    InstallerSha256: REPLACE_WITH_WINDOWS_ARM64_SHA256
+    NestedInstallerType: portable
+    NestedInstallerPath: gvc.exe
+ManifestType: singleton
+ManifestVersion: 1.7.0

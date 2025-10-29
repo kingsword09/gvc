@@ -1,0 +1,17 @@
+VERIFICATION
+Verification is intended to assist the Chocolatey moderators and maintainers.
+
+Package: gvc
+Published by: kingsword09
+Source: https://github.com/kingsword09/gvc/releases/tag/v0.1.1
+Website: https://github.com/kingsword09/gvc
+Registry: https://chocolatey.org/packages/gvc
+License: https://github.com/kingsword09/gvc/blob/main/LICENSE
+
+Package checksums:
+gvc-x86_64-pc-windows-msvc.zip (SHA256) - REPLACE_WITH_WINDOWS_SHA256
+
+To verify the package using PowerShell, run:
+1. Get checksum from VERIFICATION.txt
+2. Compare with output of:
+   Get-FileHash -Path <path_to_installer> -Algorithm SHA256
