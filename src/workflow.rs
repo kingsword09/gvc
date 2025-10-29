@@ -5,7 +5,8 @@ use crate::agents::{
 };
 use crate::error::{GvcError, Result};
 use crate::gradle::{GradleConfigParser, Repository};
-use crate::maven::{MavenRepository, PluginPortalClient, VersionComparator};
+use crate::repository::{Coordinate, DefaultVersionStrategy, RepositoryFactory, VersionStrategy};
+use crate::utils::path_validator::PathValidator;
 use colored::Colorize;
 use std::path::Path;
 
@@ -19,14 +20,14 @@ pub fn execute_add<P: AsRef<Path>>(
     version_alias_override: Option<&str>,
     stable_only: bool,
 ) -> Result<()> {
-    let project_path = project_path.as_ref();
+    let project_path = PathValidator::validate_project_path(project_path)?;
     println!(
         "{}",
         "Adding entry to Gradle version catalog...".cyan().bold()
     );
 
     println!("\n{}", "1. Validating project structure...".yellow());
-    let scanner = ProjectScannerAgent::new(project_path);
+    let scanner = ProjectScannerAgent::new(&project_path);
     let project_info = scanner.validate()?;
     println!("{}", "✓ Project structure is valid".green());
 
@@ -36,7 +37,7 @@ pub fn execute_add<P: AsRef<Path>>(
         "\n{}",
         "2. Reading Gradle repository configuration...".yellow()
     );
-    let gradle_parser = GradleConfigParser::new(project_path);
+    let gradle_parser = GradleConfigParser::new(&project_path);
     let gradle_config = gradle_parser.parse()?;
     println!(
         "   Found {} repositories:",
@@ -139,8 +140,10 @@ fn resolve_version_for_library(
     version: String,
     stable_only: bool,
 ) -> Result<String> {
-    let repo = MavenRepository::with_repositories(repositories.to_vec())?;
-    let available_versions = repo.fetch_available_versions(group, artifact)?;
+    let client = RepositoryFactory::create_maven(repositories.to_vec())?;
+    let coordinate = Coordinate::new(group, artifact);
+    let available_versions = client.fetch_available_versions(&coordinate)?;
+    let strategy = DefaultVersionStrategy;
 
     if available_versions.is_empty() {
         return Err(GvcError::ProjectValidation(format!(
@@ -150,7 +153,7 @@ fn resolve_version_for_library(
     }
 
     let target_version = if version.eq_ignore_ascii_case("latest") {
-        match VersionComparator::get_latest(&available_versions, stable_only) {
+        match strategy.select_latest(&available_versions, stable_only) {
             Some(v) => v,
             None => {
                 if stable_only {
@@ -187,8 +190,10 @@ fn resolve_version_for_plugin(
     version: String,
     stable_only: bool,
 ) -> Result<String> {
-    let client = PluginPortalClient::new()?;
-    let available_versions = client.fetch_available_plugin_versions(plugin_id)?;
+    let client = RepositoryFactory::create_plugin_portal()?;
+    let coordinate = Coordinate::plugin(plugin_id);
+    let available_versions = client.fetch_available_versions(&coordinate)?;
+    let strategy = DefaultVersionStrategy;
 
     if available_versions.is_empty() {
         return Err(GvcError::ProjectValidation(format!(
@@ -198,7 +203,7 @@ fn resolve_version_for_plugin(
     }
 
     let target_version = if version.eq_ignore_ascii_case("latest") {
-        match VersionComparator::get_latest(&available_versions, stable_only) {
+        match strategy.select_latest(&available_versions, stable_only) {
             Some(v) => v,
             None => {
                 if stable_only {
@@ -238,19 +243,19 @@ pub fn execute_update<P: AsRef<Path>>(
     stable_only: bool,
     no_git: bool,
 ) -> Result<()> {
-    let project_path = project_path.as_ref();
+    let project_path = PathValidator::validate_project_path(project_path)?;
     println!("{}", "Starting dependency update process...".cyan().bold());
 
     // Step 1: Validate project structure
     println!("\n{}", "1. Validating project structure...".yellow());
-    let scanner = ProjectScannerAgent::new(project_path);
+    let scanner = ProjectScannerAgent::new(&project_path);
     let project_info = scanner.validate()?;
     println!("{}", "✓ Project structure is valid".green());
 
     // Step 2: Check Git status (if Git is available and not disabled)
     if project_info.has_git && !no_git {
         println!("\n{}", "2. Checking Git status...".yellow());
-        let git_agent = VersionControlAgent::new(project_path);
+        let git_agent = VersionControlAgent::new(&project_path)?;
 
         if !git_agent.is_working_directory_clean()? {
             println!(
@@ -273,7 +278,7 @@ pub fn execute_update<P: AsRef<Path>>(
         "\n{}",
         "3. Reading Gradle repository configuration...".yellow()
     );
-    let gradle_parser = GradleConfigParser::new(project_path);
+    let gradle_parser = GradleConfigParser::new(&project_path);
     let gradle_config = gradle_parser.parse()?;
 
     println!(
@@ -323,7 +328,7 @@ pub fn execute_update<P: AsRef<Path>>(
     // Step 6: Git operations (if enabled)
     if project_info.has_git && !no_git && !report.is_empty() {
         println!("\n{}", "5. Creating Git commit...".yellow());
-        let git_agent = VersionControlAgent::new(project_path);
+        let git_agent = VersionControlAgent::new(&project_path)?;
         let branch_name = git_agent.commit_to_new_branch()?;
         println!(
             "{}",
@@ -342,7 +347,7 @@ pub fn execute_update<P: AsRef<Path>>(
 
 /// Execute the check workflow (dry-run)
 pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Result<()> {
-    let project_path = project_path.as_ref();
+    let project_path = PathValidator::validate_project_path(project_path)?;
     let version_channel = if stable_only { "stable" } else { "all" };
     println!(
         "{}",
@@ -356,7 +361,7 @@ pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Resu
 
     // Step 1: Validate project structure
     println!("\n{}", "1. Validating project structure...".yellow());
-    let scanner = ProjectScannerAgent::new(project_path);
+    let scanner = ProjectScannerAgent::new(&project_path);
     let project_info = scanner.validate()?;
     println!("{}", "✓ Project structure is valid".green());
 
@@ -365,7 +370,7 @@ pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Resu
         "\n{}",
         "2. Reading Gradle repository configuration...".yellow()
     );
-    let gradle_parser = GradleConfigParser::new(project_path);
+    let gradle_parser = GradleConfigParser::new(&project_path);
     let gradle_config = gradle_parser.parse()?;
 
     println!(
@@ -381,7 +386,7 @@ pub fn execute_check<P: AsRef<Path>>(project_path: P, stable_only: bool) -> Resu
 
     let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
 
-    // 读取当前的TOML但不写回
+    // Load the current TOML without writing it back
     let report = updater.check_for_updates(&project_info.toml_path, stable_only)?;
 
     println!("{}", "✓ Check completed".green());
@@ -474,7 +479,7 @@ fn is_stable_version(version: &str) -> bool {
 
 /// Execute the list workflow - display all dependencies
 pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
-    let project_path = project_path.as_ref();
+    let project_path = PathValidator::validate_project_path(project_path)?;
     println!(
         "{}",
         "Listing dependencies in version catalog...".cyan().bold()
@@ -482,7 +487,7 @@ pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
 
     // Step 1: Validate project structure
     println!("\n{}", "1. Validating project structure...".yellow());
-    let scanner = ProjectScannerAgent::new(project_path);
+    let scanner = ProjectScannerAgent::new(&project_path);
     let project_info = scanner.validate()?;
     println!("{}", "✓ Project structure is valid".green());
 

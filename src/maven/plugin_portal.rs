@@ -1,11 +1,13 @@
 use crate::error::{GvcError, Result};
 use crate::maven::version::{Version, VersionComparator};
+use crate::repository::{Coordinate, RepositoryClient};
 use quick_xml::de::from_str;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
 const GRADLE_PLUGIN_PORTAL: &str = "https://plugins.gradle.org/m2";
+const MAX_METADATA_BYTES: usize = 10 * 1024 * 1024;
 
 /// Gradle Plugin Portal client
 pub struct PluginPortalClient {
@@ -15,8 +17,9 @@ pub struct PluginPortalClient {
 impl PluginPortalClient {
     pub fn new() -> Result<Self> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("gvc/0.1.1")
+            .timeout(Duration::from_secs(10))
+            .user_agent("gvc")
+            .danger_accept_invalid_certs(false)
             .build()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
@@ -124,6 +127,12 @@ impl PluginPortalClient {
             .text()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
+        if text.len() > MAX_METADATA_BYTES {
+            return Err(GvcError::Io(std::io::Error::other(
+                "Plugin metadata response exceeded 10MB limit",
+            )));
+        }
+
         let metadata: MavenMetadata = from_str(&text).map_err(|e| {
             GvcError::TomlParsing(format!("Failed to parse plugin metadata: {}", e))
         })?;
@@ -131,6 +140,20 @@ impl PluginPortalClient {
         let versions: Vec<String> = metadata.versioning.versions.version.to_vec();
 
         Ok(Some(versions))
+    }
+}
+
+impl RepositoryClient for PluginPortalClient {
+    fn fetch_available_versions(&self, coordinate: &Coordinate) -> Result<Vec<String>> {
+        self.fetch_available_plugin_versions(&coordinate.group)
+    }
+
+    fn fetch_latest_version(
+        &self,
+        coordinate: &Coordinate,
+        stable_only: bool,
+    ) -> Result<Option<String>> {
+        self.fetch_latest_plugin_version(&coordinate.group, stable_only)
     }
 }
 

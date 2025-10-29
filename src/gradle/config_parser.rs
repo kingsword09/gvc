@@ -34,33 +34,33 @@ impl GradleConfigParser {
     pub fn parse(&self) -> Result<GradleConfig> {
         let mut repositories = Vec::new();
 
-        // 1. 尝试从 settings.gradle.kts 读取
+        // 1. Attempt to read settings.gradle.kts
         if let Ok(repos) = self.parse_settings_gradle_kts() {
             repositories.extend(repos);
         }
 
-        // 2. 尝试从 settings.gradle 读取
+        // 2. Attempt to read settings.gradle
         if let Ok(repos) = self.parse_settings_gradle() {
             repositories.extend(repos);
         }
 
-        // 3. 尝试从 build.gradle.kts 读取
+        // 3. Attempt to read build.gradle.kts
         if let Ok(repos) = self.parse_build_gradle_kts() {
             repositories.extend(repos);
         }
 
-        // 4. 尝试从 build.gradle 读取
+        // 4. Attempt to read build.gradle
         if let Ok(repos) = self.parse_build_gradle() {
             repositories.extend(repos);
         }
 
         if repositories.is_empty() {
-            // 如果没找到任何仓库配置，使用默认的
+            // Fall back to defaults when no repositories are configured explicitly
             println!("⚠️  No repositories found in Gradle config, using defaults");
             repositories = self.get_default_repositories();
         }
 
-        // 去重
+        // Remove duplicated repositories
         repositories = self.deduplicate_repositories(repositories);
 
         Ok(GradleConfig { repositories })
@@ -114,7 +114,7 @@ impl GradleConfigParser {
     fn extract_repositories_kotlin(&self, content: &str) -> Result<Vec<Repository>> {
         let mut repositories = Vec::new();
 
-        // 匹配 mavenCentral()
+        // Match mavenCentral()
         if content.contains("mavenCentral()") {
             repositories.push(Repository {
                 name: "Maven Central".to_string(),
@@ -123,7 +123,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配 google()
+        // Match google()
         if content.contains("google()") {
             repositories.push(Repository {
                 name: "Google Maven".to_string(),
@@ -136,7 +136,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配 gradlePluginPortal()
+        // Match gradlePluginPortal()
         if content.contains("gradlePluginPortal()") {
             repositories.push(Repository {
                 name: "Gradle Plugin Portal".to_string(),
@@ -145,7 +145,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配自定义 maven { url = uri("...") }
+        // Match custom maven { url = uri("...") }
         let maven_url_regex =
             Regex::new(r#"maven\s*\{\s*url\s*=\s*uri\s*\(\s*["']([^"']+)["']\s*\)\s*\}"#)
                 .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
@@ -160,7 +160,7 @@ impl GradleConfigParser {
             }
         }
 
-        // 匹配 maven("...")
+        // Match maven("...")
         let maven_simple_regex = Regex::new(r#"maven\s*\(\s*["']([^"']+)["']\s*\)"#)
             .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
 
@@ -181,7 +181,7 @@ impl GradleConfigParser {
     fn extract_repositories_groovy(&self, content: &str) -> Result<Vec<Repository>> {
         let mut repositories = Vec::new();
 
-        // 匹配 mavenCentral()
+        // Match mavenCentral()
         if content.contains("mavenCentral()") {
             repositories.push(Repository {
                 name: "Maven Central".to_string(),
@@ -190,7 +190,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配 google()
+        // Match google()
         if content.contains("google()") {
             repositories.push(Repository {
                 name: "Google Maven".to_string(),
@@ -203,7 +203,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配 jcenter() (已废弃但仍可能存在)
+        // Match jcenter() (deprecated but still seen in legacy projects)
         if content.contains("jcenter()") {
             repositories.push(Repository {
                 name: "JCenter (Deprecated)".to_string(),
@@ -212,7 +212,7 @@ impl GradleConfigParser {
             });
         }
 
-        // 匹配 maven { url 'https://...' }
+        // Match maven { url 'https://...' }
         let maven_url_regex = Regex::new(r#"maven\s*\{\s*url\s+['"]([^'"]+)['"]"#)
             .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
 
@@ -226,7 +226,7 @@ impl GradleConfigParser {
             }
         }
 
-        // 匹配 maven { url = 'https://...' }
+        // Match maven { url = 'https://...' }
         let maven_url_equals_regex = Regex::new(r#"maven\s*\{\s*url\s*=\s*['"]([^'"]+)['"]"#)
             .map_err(|e| GvcError::TomlParsing(format!("Regex error: {}", e)))?;
 
@@ -269,7 +269,7 @@ impl GradleConfigParser {
         let mut unique_repos = Vec::new();
 
         for repo in repos {
-            // 标准化URL（移除末尾的斜杠）
+            // Normalise the URL by stripping any trailing slash
             let normalized_url = repo.url.trim_end_matches('/').to_string();
 
             if seen_urls.insert(normalized_url.clone()) {
@@ -350,7 +350,7 @@ repositories {
             },
             Repository {
                 name: "Maven Central".to_string(),
-                url: "https://repo1.maven.org/maven2/".to_string(), // 末尾斜杠
+                url: "https://repo1.maven.org/maven2/".to_string(), // trailing slash
                 group_filters: Vec::new(),
             },
             Repository {

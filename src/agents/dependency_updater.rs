@@ -1,8 +1,9 @@
 use crate::error::{GvcError, Result};
 use crate::maven::version::Version;
-use crate::maven::{
-    MavenRepository, PluginPortalClient, VersionComparator, parse_maven_coordinate,
+use crate::repository::{
+    Coordinate, DefaultVersionStrategy, RepositoryClient, RepositoryFactory, VersionStrategy,
 };
+use crate::utils::toml::{LibraryDetails, TomlUtils};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use regex::Regex;
@@ -12,34 +13,37 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::Arc;
 use toml_edit::{DocumentMut, Item, Value};
 
 /// DependencyUpdater handles the actual dependency version updates
 pub struct DependencyUpdater {
-    maven_repo: MavenRepository,
-    plugin_portal: PluginPortalClient,
+    library_client: Arc<dyn RepositoryClient>,
+    plugin_client: Arc<dyn RepositoryClient>,
+    version_strategy: Arc<dyn VersionStrategy>,
 }
 
 const VERSION_PAGE_SIZE: usize = 10;
 
 impl DependencyUpdater {
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            maven_repo: MavenRepository::new()?,
-            plugin_portal: PluginPortalClient::new()?,
-        })
+    pub fn with_repositories(repositories: Vec<crate::gradle::Repository>) -> Result<Self> {
+        Self::with_clients(
+            RepositoryFactory::create_maven(repositories)?,
+            RepositoryFactory::create_plugin_portal()?,
+            DefaultVersionStrategy::shared(),
+        )
     }
 
-    pub fn with_repositories(repositories: Vec<crate::gradle::Repository>) -> Result<Self> {
-        if repositories.is_empty() {
-            // 如果没有提供仓库，使用默认的
-            Self::new()
-        } else {
-            Ok(Self {
-                maven_repo: MavenRepository::with_repositories(repositories)?,
-                plugin_portal: PluginPortalClient::new()?,
-            })
-        }
+    fn with_clients(
+        library_client: Arc<dyn RepositoryClient>,
+        plugin_client: Arc<dyn RepositoryClient>,
+        version_strategy: Arc<dyn VersionStrategy>,
+    ) -> Result<Self> {
+        Ok(Self {
+            library_client,
+            plugin_client,
+            version_strategy,
+        })
     }
 
     /// Check for updates without modifying the file
@@ -260,83 +264,22 @@ impl DependencyUpdater {
             pb.set_message(format!("Checking {}", version_key));
 
             // Find a library that uses this version reference
-            let mut representative_lib: Option<(String, String)> = None;
-
-            for (_lib_name, lib_value) in &libraries_data {
-                let uses_this_version = if let Some(inline_table) = lib_value.as_inline_table() {
-                    if let Some(version_item) = inline_table.get("version") {
-                        if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str())
-                                == Some(version_key.as_str())
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else if let Some(table) = lib_value.as_table() {
-                    if let Some(version_item) = table.get("version") {
-                        if let Some(version_ref) = version_item.as_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str())
-                                == Some(version_key.as_str())
-                        } else if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str())
-                                == Some(version_key.as_str())
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-
-                if uses_this_version {
-                    let coordinate = if let Some(inline_table) = lib_value.as_inline_table() {
-                        if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                            parse_maven_coordinate(module)
-                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
-                        } else if let Some(group) =
-                            inline_table.get("group").and_then(|v| v.as_str())
-                        {
-                            inline_table
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .map(|name| (group.to_string(), name.to_string()))
-                        } else {
-                            None
-                        }
-                    } else if let Some(table) = lib_value.as_table() {
-                        if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                            parse_maven_coordinate(module)
-                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
-                        } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
-                            table
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .map(|name| (group.to_string(), name.to_string()))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    if let Some((group, artifact)) = coordinate {
-                        representative_lib = Some((group, artifact));
-                        break;
-                    }
+            let representative_lib = libraries_data.iter().find_map(|(_name, lib_value)| {
+                if !TomlUtils::uses_version_ref(lib_value, &version_key) {
+                    return None;
                 }
-            }
+                TomlUtils::extract_library_details(lib_value)
+                    .map(|details| (details.group, details.artifact))
+            });
 
             if let Some((group, artifact)) = representative_lib {
-                if let Some(latest) =
-                    self.maven_repo
-                        .fetch_latest_version(&group, &artifact, stable_only)?
+                let coordinate = Coordinate::new(group.as_str(), artifact.as_str());
+                if let Some(latest) = self
+                    .library_client
+                    .fetch_latest_version(&coordinate, stable_only)?
                 {
                     if latest != current_version
-                        && VersionComparator::is_newer(&latest, &current_version)
+                        && self.version_strategy.is_upgrade(&current_version, &latest)
                         && interaction.confirm(
                             UpdateCategory::Version,
                             &version_key,
@@ -344,11 +287,12 @@ impl DependencyUpdater {
                             &latest,
                         )?
                     {
-                        if let Some(versions_mut) =
-                            doc.get_mut("versions").and_then(|v| v.as_table_mut())
+                        if let Some(entry) = doc
+                            .get_mut("versions")
+                            .and_then(|v| v.as_table_mut())
+                            .and_then(|table| table.get_mut(&version_key))
                         {
-                            *versions_mut.get_mut(&version_key).unwrap() =
-                                toml_edit::value(latest.as_str());
+                            TomlUtils::update_version(entry, latest.as_str());
                             report.add_version_update(version_key.clone(), current_version, latest);
                         }
                     }
@@ -403,74 +347,13 @@ impl DependencyUpdater {
             };
 
             // Find the first library that references this version (as a representative)
-            let mut representative_lib: Option<(String, String)> = None;
-
-            for (_lib_name, lib_value) in libraries.iter() {
-                let uses_this_version = if let Some(inline_table) = lib_value.as_inline_table() {
-                    // Check if version.ref matches
-                    if let Some(version_item) = inline_table.get("version") {
-                        if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(&version_key)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else if let Some(table) = lib_value.as_table() {
-                    if let Some(version_item) = table.get("version") {
-                        if let Some(version_ref) = version_item.as_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(&version_key)
-                        } else if let Some(version_ref) = version_item.as_inline_table() {
-                            version_ref.get("ref").and_then(|v| v.as_str()) == Some(&version_key)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-
-                if uses_this_version {
-                    // Extract group:artifact from the first match
-                    let coordinate = if let Some(inline_table) = lib_value.as_inline_table() {
-                        if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                            parse_maven_coordinate(module)
-                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
-                        } else if let Some(group) =
-                            inline_table.get("group").and_then(|v| v.as_str())
-                        {
-                            inline_table
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .map(|name| (group.to_string(), name.to_string()))
-                        } else {
-                            None
-                        }
-                    } else if let Some(table) = lib_value.as_table() {
-                        if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                            parse_maven_coordinate(module)
-                                .map(|(g, a, _)| (g.to_string(), a.to_string()))
-                        } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
-                            table
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .map(|name| (group.to_string(), name.to_string()))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    if let Some((group, artifact)) = coordinate {
-                        representative_lib = Some((group, artifact));
-                        break; // Only check the first library as representative
-                    }
+            let representative_lib = libraries.iter().find_map(|(_name, lib_value)| {
+                if !TomlUtils::uses_version_ref(lib_value, &version_key) {
+                    return None;
                 }
-            }
+                TomlUtils::extract_library_details(lib_value)
+                    .map(|details| (details.group, details.artifact))
+            });
 
             // If no libraries reference this version, skip
             if representative_lib.is_none() {
@@ -480,20 +363,19 @@ impl DependencyUpdater {
 
             // Query latest version for the representative library only
             let (group, artifact) = representative_lib.unwrap();
-            if let Some(latest) =
-                self.maven_repo
-                    .fetch_latest_version(&group, &artifact, stable_only)?
+            let coordinate = Coordinate::new(group.as_str(), artifact.as_str());
+            if let Some(latest) = self
+                .library_client
+                .fetch_latest_version(&coordinate, stable_only)?
             {
-                if latest != current_version {
-                    // Verify this is actually an upgrade, not a downgrade
-                    use crate::maven::version::VersionComparator;
-                    if VersionComparator::is_newer(&latest, current_version) {
-                        report.add_version_update(
-                            version_key.clone(),
-                            current_version.to_string(),
-                            latest,
-                        );
-                    }
+                if latest != current_version
+                    && self.version_strategy.is_upgrade(current_version, &latest)
+                {
+                    report.add_version_update(
+                        version_key.clone(),
+                        current_version.to_string(),
+                        latest,
+                    );
                 }
             }
 
@@ -542,79 +424,26 @@ impl DependencyUpdater {
         lib_value: &Item,
         stable_only: bool,
     ) -> Result<Option<DependencyUpdate>> {
-        // 只读取不修改
-        if let Some(str_value) = lib_value.as_str() {
-            if let Some((group, artifact, Some(current))) = parse_maven_coordinate(str_value) {
-                if let Some(latest) =
-                    self.maven_repo
-                        .fetch_latest_version(&group, &artifact, stable_only)?
-                {
-                    if latest != current && VersionComparator::is_newer(&latest, &current) {
-                        return Ok(Some(DependencyUpdate {
-                            old_version: current.to_string(),
-                            new_version: latest,
-                        }));
-                    }
-                }
-            }
-        } else if let Some(inline_table) = lib_value.as_inline_table() {
-            // Inline table format: { group = "...", name = "...", version = "..." } or { module = "...", version = "..." }
-            let (group, artifact) =
-                if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
-                        (g.to_string(), a.to_string())
-                    } else {
-                        return Ok(None);
-                    }
-                } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
-                    if let Some(name) = inline_table.get("name").and_then(|v| v.as_str()) {
-                        (group.to_string(), name.to_string())
-                    } else {
-                        return Ok(None);
-                    }
-                } else {
-                    return Ok(None);
-                };
+        let details = match TomlUtils::extract_library_details(lib_value) {
+            Some(details) => details,
+            None => return Ok(None),
+        };
 
-            if let Some(version_item) = inline_table.get("version") {
-                if let Some(current_version_str) = version_item.as_str() {
-                    if let Some(latest) =
-                        self.maven_repo
-                            .fetch_latest_version(&group, &artifact, stable_only)?
-                    {
-                        if latest != current_version_str
-                            && VersionComparator::is_newer(&latest, current_version_str)
-                        {
-                            return Ok(Some(DependencyUpdate {
-                                old_version: current_version_str.to_string(),
-                                new_version: latest,
-                            }));
-                        }
-                    }
-                }
-            }
-        } else if let Some(table) = lib_value.as_table() {
-            if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
-                    if let Some(version_item) = table.get("version") {
-                        if let Some(current_version_str) = version_item.as_str() {
-                            if let Some(latest) = self.maven_repo.fetch_latest_version(
-                                &group,
-                                &artifact,
-                                stable_only,
-                            )? {
-                                if latest != current_version_str
-                                    && VersionComparator::is_newer(&latest, current_version_str)
-                                {
-                                    return Ok(Some(DependencyUpdate {
-                                        old_version: current_version_str.to_string(),
-                                        new_version: latest,
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
+        let current = match details.version {
+            Some(ref version) => version,
+            None => return Ok(None),
+        };
+
+        let coordinate = Coordinate::new(details.group.as_str(), details.artifact.as_str());
+        if let Some(latest) = self
+            .library_client
+            .fetch_latest_version(&coordinate, stable_only)?
+        {
+            if latest != *current && self.version_strategy.is_upgrade(current, &latest) {
+                return Ok(Some(DependencyUpdate {
+                    old_version: current.to_string(),
+                    new_version: latest,
+                }));
             }
         }
 
@@ -668,118 +497,50 @@ impl DependencyUpdater {
         stable_only: bool,
         interaction: &mut Interaction,
     ) -> Result<Option<DependencyUpdate>> {
-        // Library can be a string like "group:artifact:version"
-        // or a table like { module = "group:artifact", version = "1.0" }
-        // or an inline table { group = "...", name = "...", version = "1.0" }
-        // or { module = "group:artifact", version.ref = "some-version" }
+        let details = match TomlUtils::extract_library_details(&*lib_value) {
+            Some(details) => details,
+            None => return Ok(None),
+        };
 
-        if let Some(str_value) = lib_value.as_str() {
-            // Simple string format: "group:artifact:version"
-            if let Some((group, artifact, Some(current))) = parse_maven_coordinate(str_value) {
-                if let Some(latest) =
-                    self.maven_repo
-                        .fetch_latest_version(&group, &artifact, stable_only)?
-                {
-                    let old_version = current;
-                    if latest != old_version
-                        && interaction.confirm(
-                            UpdateCategory::Library,
-                            name,
-                            old_version.as_str(),
-                            &latest,
-                        )?
-                    {
-                        let new_coord = format!("{}:{}:{}", group, artifact, latest);
-                        *lib_value = Item::Value(Value::from(new_coord.as_str()));
-                        return Ok(Some(DependencyUpdate {
-                            old_version,
-                            new_version: latest,
-                        }));
-                    }
-                }
-            }
-        } else if let Some(inline_table) = lib_value.as_inline_table_mut() {
-            // Inline table format: { group = "...", name = "...", version = "..." }
-            let (group, artifact) =
-                if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
-                        (g.to_string(), a.to_string())
-                    } else {
-                        return Ok(None);
-                    }
-                } else if let Some(group_str) = inline_table.get("group").and_then(|v| v.as_str()) {
-                    if let Some(name_str) = inline_table.get("name").and_then(|v| v.as_str()) {
-                        (group_str.to_string(), name_str.to_string())
-                    } else {
-                        return Ok(None);
-                    }
-                } else {
-                    return Ok(None);
-                };
+        let LibraryDetails {
+            group,
+            artifact,
+            version,
+            ..
+        } = details;
 
-            // Check if version is a direct value (not a reference)
-            if let Some(version_item) = inline_table.get("version") {
-                if let Some(current_version_str) = version_item.as_str() {
-                    let current_version = current_version_str.to_string();
-                    if let Some(latest) =
-                        self.maven_repo
-                            .fetch_latest_version(&group, &artifact, stable_only)?
-                    {
-                        if latest != current_version
-                            && interaction.confirm(
-                                UpdateCategory::Library,
-                                name,
-                                &current_version,
-                                &latest,
-                            )?
-                        {
-                            inline_table.insert("version", Value::from(latest.as_str()));
-                            return Ok(Some(DependencyUpdate {
-                                old_version: current_version,
-                                new_version: latest,
-                            }));
-                        }
-                    }
-                }
-                // If it's a reference (version.ref), we skip it here
-            }
-        } else if let Some(table) = lib_value.as_table_mut() {
-            // Regular table format
-            if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
-                    // Check if version is a direct value or a reference
-                    if let Some(version_item) = table.get_mut("version") {
-                        if let Some(current_version_str) = version_item.as_str() {
-                            let current_version = current_version_str.to_string();
-                            // Direct version
-                            if let Some(latest) = self.maven_repo.fetch_latest_version(
-                                &group,
-                                &artifact,
-                                stable_only,
-                            )? {
-                                if latest != current_version
-                                    && interaction.confirm(
-                                        UpdateCategory::Library,
-                                        name,
-                                        &current_version,
-                                        &latest,
-                                    )?
-                                {
-                                    *version_item = Item::Value(Value::from(latest.as_str()));
-                                    return Ok(Some(DependencyUpdate {
-                                        old_version: current_version,
-                                        new_version: latest,
-                                    }));
-                                }
-                            }
-                        }
-                        // If it's a reference (version.ref), we skip it here
-                    }
-                }
-            }
+        let current = match version {
+            Some(current) => current,
+            None => return Ok(None), // skip when using version.ref
+        };
+
+        let coordinate = Coordinate::new(group.as_str(), artifact.as_str());
+        let latest = match self
+            .library_client
+            .fetch_latest_version(&coordinate, stable_only)?
+        {
+            Some(latest) => latest,
+            None => return Ok(None),
+        };
+
+        if latest == current
+            || !self.version_strategy.is_upgrade(&current, &latest)
+            || !interaction.confirm(UpdateCategory::Library, name, &current, &latest)?
+        {
+            return Ok(None);
         }
 
-        Ok(None)
+        if lib_value.as_str().is_some() {
+            let new_coord = format!("{}:{}:{}", group, artifact, latest);
+            *lib_value = Item::Value(Value::from(new_coord));
+        } else {
+            TomlUtils::update_version(lib_value, latest.as_str());
+        }
+
+        Ok(Some(DependencyUpdate {
+            old_version: current,
+            new_version: latest,
+        }))
     }
 
     fn update_plugins_section(
@@ -858,12 +619,13 @@ impl DependencyUpdater {
             };
 
             // Fetch latest version from Plugin Portal
+            let coordinate = Coordinate::plugin(plugin_id.as_str());
             if let Some(latest) = self
-                .plugin_portal
-                .fetch_latest_plugin_version(&plugin_id, stable_only)?
+                .plugin_client
+                .fetch_latest_version(&coordinate, stable_only)?
             {
                 if latest != current_version
-                    && VersionComparator::is_newer(&latest, &current_version)
+                    && self.version_strategy.is_upgrade(&current_version, &latest)
                     && interaction.confirm(
                         UpdateCategory::Plugin,
                         name,
@@ -933,73 +695,17 @@ impl DependencyUpdater {
     }
 
     fn build_library_candidate(name: &str, item: &Item) -> Option<TargetCandidate> {
-        if let Some(str_value) = item.as_str() {
-            if let Some((group, artifact, Some(current_version))) =
-                parse_maven_coordinate(str_value)
-            {
-                return Some(TargetCandidate {
-                    name: name.to_string(),
-                    current_version,
-                    kind: TargetKind::Library { group, artifact },
-                });
-            }
-        } else if let Some(inline_table) = item.as_inline_table() {
-            let (group, artifact) =
-                if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
-                        (g, a)
-                    } else {
-                        return None;
-                    }
-                } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
-                    if let Some(name_value) = inline_table.get("name").and_then(|v| v.as_str()) {
-                        (group.to_string(), name_value.to_string())
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                };
+        let details = TomlUtils::extract_library_details(item)?;
+        let current_version = details.version?;
 
-            if let Some(version_item) = inline_table.get("version") {
-                if let Some(current_version) = version_item.as_str() {
-                    return Some(TargetCandidate {
-                        name: name.to_string(),
-                        current_version: current_version.to_string(),
-                        kind: TargetKind::Library { group, artifact },
-                    });
-                }
-            }
-        } else if let Some(table) = item.as_table() {
-            let (group, artifact) =
-                if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                    if let Some((g, a, _)) = parse_maven_coordinate(module) {
-                        (g, a)
-                    } else {
-                        return None;
-                    }
-                } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
-                    if let Some(name_value) = table.get("name").and_then(|v| v.as_str()) {
-                        (group.to_string(), name_value.to_string())
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                };
-
-            if let Some(version_item) = table.get("version") {
-                if let Some(current_version) = version_item.as_str() {
-                    return Some(TargetCandidate {
-                        name: name.to_string(),
-                        current_version: current_version.to_string(),
-                        kind: TargetKind::Library { group, artifact },
-                    });
-                }
-            }
-        }
-
-        None
+        Some(TargetCandidate {
+            name: name.to_string(),
+            current_version,
+            kind: TargetKind::Library {
+                group: details.group,
+                artifact: details.artifact,
+            },
+        })
     }
 
     fn build_plugin_candidate(name: &str, item: &Item) -> Option<TargetCandidate> {
@@ -1036,64 +742,12 @@ impl DependencyUpdater {
     ) -> Option<(String, String)> {
         let libraries = doc.get("libraries").and_then(|v| v.as_table())?;
         for (_name, lib_value) in libraries.iter() {
-            if Self::library_uses_version_ref(lib_value, version_key) {
-                if let Some((group, artifact)) = Self::extract_group_artifact(lib_value) {
+            if TomlUtils::uses_version_ref(lib_value, version_key) {
+                if let Some((group, artifact)) = TomlUtils::extract_group_artifact(lib_value) {
                     return Some((group, artifact));
                 }
             }
         }
-        None
-    }
-
-    fn library_uses_version_ref(lib_value: &Item, version_key: &str) -> bool {
-        if let Some(inline_table) = lib_value.as_inline_table() {
-            if let Some(version_item) = inline_table.get("version") {
-                if let Some(version_ref) = version_item.as_inline_table() {
-                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
-                }
-            }
-            false
-        } else if let Some(table) = lib_value.as_table() {
-            if let Some(version_item) = table.get("version") {
-                if let Some(version_ref) = version_item.as_table() {
-                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
-                } else if let Some(version_ref) = version_item.as_inline_table() {
-                    return version_ref.get("ref").and_then(|v| v.as_str()) == Some(version_key);
-                }
-            }
-            false
-        } else {
-            false
-        }
-    }
-
-    fn extract_group_artifact(item: &Item) -> Option<(String, String)> {
-        if let Some(str_value) = item.as_str() {
-            if let Some((group, artifact, _)) = parse_maven_coordinate(str_value) {
-                return Some((group, artifact));
-            }
-        } else if let Some(inline_table) = item.as_inline_table() {
-            if let Some(module) = inline_table.get("module").and_then(|v| v.as_str()) {
-                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
-                    return Some((group, artifact));
-                }
-            } else if let Some(group) = inline_table.get("group").and_then(|v| v.as_str()) {
-                if let Some(name_value) = inline_table.get("name").and_then(|v| v.as_str()) {
-                    return Some((group.to_string(), name_value.to_string()));
-                }
-            }
-        } else if let Some(table) = item.as_table() {
-            if let Some(module) = table.get("module").and_then(|v| v.as_str()) {
-                if let Some((group, artifact, _)) = parse_maven_coordinate(module) {
-                    return Some((group, artifact));
-                }
-            } else if let Some(group) = table.get("group").and_then(|v| v.as_str()) {
-                if let Some(name_value) = table.get("name").and_then(|v| v.as_str()) {
-                    return Some((group.to_string(), name_value.to_string()));
-                }
-            }
-        }
-
         None
     }
 
@@ -1145,11 +799,13 @@ impl DependencyUpdater {
         let versions = match &candidate.kind {
             TargetKind::Library { group, artifact }
             | TargetKind::VersionAlias { group, artifact } => {
-                self.maven_repo.fetch_available_versions(group, artifact)?
+                let coordinate = Coordinate::new(group, artifact);
+                self.library_client.fetch_available_versions(&coordinate)?
             }
-            TargetKind::Plugin { plugin_id } => self
-                .plugin_portal
-                .fetch_available_plugin_versions(plugin_id)?,
+            TargetKind::Plugin { plugin_id } => {
+                let coordinate = Coordinate::plugin(plugin_id.as_str());
+                self.plugin_client.fetch_available_versions(&coordinate)?
+            }
         };
 
         let mut entries = Vec::with_capacity(versions.len());
