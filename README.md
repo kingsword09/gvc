@@ -31,6 +31,44 @@ English | [简体中文](README_ZH.md)
 
 ## Installation
 
+### From Package Managers
+
+#### macOS (Homebrew)
+
+```bash
+brew install gvc
+```
+
+#### Windows (Winget)
+
+```bash
+winget install GVC.GVC
+```
+
+#### Windows (Chocolatey)
+
+```powershell
+choco install gvc
+```
+
+#### Linux (Homebrew)
+
+```bash
+brew install gvc
+```
+
+#### Linux (Snap)
+
+```bash
+sudo snap install gvc
+```
+
+#### Linux (Flatpak)
+
+```bash
+flatpak install flathub com.gvc.cli
+```
+
 ### From crates.io (Recommended)
 
 ```bash
