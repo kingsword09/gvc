@@ -3,6 +3,8 @@ mod cli;
 mod error;
 mod gradle;
 mod maven;
+mod repository;
+mod utils;
 mod workflow;
 
 use clap::Parser;

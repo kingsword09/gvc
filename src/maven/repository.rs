@@ -1,14 +1,18 @@
 use crate::error::{GvcError, Result};
 use crate::gradle::Repository as GradleRepository;
 use crate::maven::version::{Version, VersionComparator};
+use crate::repository::{Coordinate, RepositoryClient};
 use quick_xml::de::from_str;
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use std::net::IpAddr;
 use std::time::Duration;
+use url::Url;
 
 const DEFAULT_MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
 const GOOGLE_MAVEN: &str = "https://dl.google.com/dl/android/maven2";
+const MAX_METADATA_BYTES: usize = 10 * 1024 * 1024;
 
 /// Maven repository client
 pub struct MavenRepository {
@@ -18,62 +22,28 @@ pub struct MavenRepository {
 
 impl MavenRepository {
     pub fn new() -> Result<Self> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
+        let client = Self::build_client()?;
+        let repositories = Self::ensure_valid_repositories(Self::default_repositories())?;
 
         Ok(Self {
             client,
-            repositories: vec![
-                GradleRepository {
-                    name: "Maven Central".to_string(),
-                    url: DEFAULT_MAVEN_CENTRAL.to_string(),
-                    group_filters: Vec::new(),
-                },
-                GradleRepository {
-                    name: "Google Maven".to_string(),
-                    url: GOOGLE_MAVEN.to_string(),
-                    group_filters: vec![
-                        ".*google.*".to_string(),
-                        ".*android.*".to_string(),
-                        ".*androidx.*".to_string(),
-                    ],
-                },
-            ],
+            repositories,
         })
     }
 
     pub fn with_repositories(repositories: Vec<GradleRepository>) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
-
-        let repos = if repositories.is_empty() {
-            vec![
-                GradleRepository {
-                    name: "Maven Central".to_string(),
-                    url: DEFAULT_MAVEN_CENTRAL.to_string(),
-                    group_filters: Vec::new(),
-                },
-                GradleRepository {
-                    name: "Google Maven".to_string(),
-                    url: GOOGLE_MAVEN.to_string(),
-                    group_filters: vec![
-                        ".*google.*".to_string(),
-                        ".*android.*".to_string(),
-                        ".*androidx.*".to_string(),
-                    ],
-                },
-            ]
+        let client = Self::build_client()?;
+        let repositories = if repositories.is_empty() {
+            Self::default_repositories()
         } else {
             repositories
         };
 
+        let repositories = Self::ensure_valid_repositories(repositories)?;
+
         Ok(Self {
             client,
-            repositories: repos,
+            repositories,
         })
     }
 
@@ -184,6 +154,12 @@ impl MavenRepository {
             .text()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
+        if text.len() > MAX_METADATA_BYTES {
+            return Err(GvcError::Io(std::io::Error::other(
+                "Maven metadata response exceeded 10MB limit",
+            )));
+        }
+
         let metadata: MavenMetadata = from_str(&text)
             .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
 
@@ -244,6 +220,128 @@ impl MavenRepository {
             latest: maven_metadata.versioning.latest,
             release: maven_metadata.versioning.release,
         }))
+    }
+}
+
+impl RepositoryClient for MavenRepository {
+    fn fetch_available_versions(&self, coordinate: &Coordinate) -> Result<Vec<String>> {
+        MavenRepository::fetch_available_versions(self, &coordinate.group, &coordinate.artifact)
+    }
+
+    fn fetch_latest_version(
+        &self,
+        coordinate: &Coordinate,
+        stable_only: bool,
+    ) -> Result<Option<String>> {
+        MavenRepository::fetch_latest_version(
+            self,
+            &coordinate.group,
+            &coordinate.artifact,
+            stable_only,
+        )
+    }
+}
+
+impl MavenRepository {
+    fn build_client() -> Result<Client> {
+        Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent("gvc")
+            .danger_accept_invalid_certs(false)
+            .build()
+            .map_err(|e| GvcError::Io(std::io::Error::other(e)))
+    }
+
+    fn default_repositories() -> Vec<GradleRepository> {
+        vec![
+            GradleRepository {
+                name: "Maven Central".to_string(),
+                url: DEFAULT_MAVEN_CENTRAL.to_string(),
+                group_filters: Vec::new(),
+            },
+            GradleRepository {
+                name: "Google Maven".to_string(),
+                url: GOOGLE_MAVEN.to_string(),
+                group_filters: vec![
+                    ".*google.*".to_string(),
+                    ".*android.*".to_string(),
+                    ".*androidx.*".to_string(),
+                ],
+            },
+        ]
+    }
+
+    fn ensure_valid_repositories(
+        repositories: Vec<GradleRepository>,
+    ) -> Result<Vec<GradleRepository>> {
+        for repo in &repositories {
+            Self::validate_repository_url(&repo.url)?;
+        }
+        Ok(repositories)
+    }
+
+    fn validate_repository_url(url: &str) -> Result<()> {
+        let parsed = Url::parse(url)
+            .map_err(|_| GvcError::ProjectValidation(format!("Invalid repository URL: {url}")))?;
+
+        match parsed.scheme() {
+            "https" | "http" => {}
+            scheme => {
+                return Err(GvcError::ProjectValidation(format!(
+                    "Unsupported repository scheme: {scheme}"
+                )));
+            }
+        }
+
+        if let Some(host) = parsed.host_str() {
+            if Self::is_private_host(host) {
+                return Err(GvcError::ProjectValidation(format!(
+                    "Repository host '{host}' is not allowed"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_private_host(host: &str) -> bool {
+        if host.eq_ignore_ascii_case("localhost") {
+            return true;
+        }
+
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            match ip {
+                IpAddr::V4(v4) => v4.is_private() || v4.is_loopback(),
+                IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+            }
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_https_repository() {
+        assert!(
+            MavenRepository::validate_repository_url("https://repo.maven.apache.org/maven2")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_scheme() {
+        let err = MavenRepository::validate_repository_url("ftp://example.com").unwrap_err();
+        assert!(matches!(err, GvcError::ProjectValidation(_)));
+    }
+
+    #[test]
+    fn rejects_private_host() {
+        let err = MavenRepository::validate_repository_url("https://127.0.0.1/repo").unwrap_err();
+        assert!(matches!(err, GvcError::ProjectValidation(_)));
     }
 }
 
