@@ -1,4 +1,5 @@
 use crate::error::{GvcError, Result};
+use crate::utils::path_validator::PathValidator;
 use std::path::{Path, PathBuf};
 
 /// ProjectScannerAgent validates the project structure
@@ -15,6 +16,14 @@ impl ProjectScannerAgent {
 
     /// Validates the project structure
     pub fn validate(&self) -> Result<ProjectInfo> {
+        self.validate_with_catalog::<&Path>(None)
+    }
+
+    /// Validates the project structure using an optional explicit catalog path.
+    pub fn validate_with_catalog<P: AsRef<Path>>(
+        &self,
+        catalog_path: Option<P>,
+    ) -> Result<ProjectInfo> {
         // Check for Gradle wrapper
         let gradlew_exists = self.project_path.join("gradlew").exists()
             || self.project_path.join("gradlew.bat").exists();
@@ -25,13 +34,27 @@ impl ProjectScannerAgent {
             ));
         }
 
-        // Check for libs.versions.toml
-        let toml_path = self.project_path.join("gradle/libs.versions.toml");
-        if !toml_path.exists() {
-            return Err(GvcError::ProjectValidation(
-                "gradle/libs.versions.toml not found".to_string(),
-            ));
-        }
+        let toml_path = match catalog_path {
+            Some(path) => {
+                let path = path.as_ref();
+                let full_path = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.project_path.join(path)
+                };
+                PathValidator::validate_file_path(&full_path, &self.project_path)?
+            }
+            None => {
+                // Check for libs.versions.toml
+                let default_path = self.project_path.join("gradle/libs.versions.toml");
+                if !default_path.exists() {
+                    return Err(GvcError::ProjectValidation(
+                        "gradle/libs.versions.toml not found".to_string(),
+                    ));
+                }
+                default_path
+            }
+        };
 
         // Check for Git repository
         let git_dir = self.project_path.join(".git");

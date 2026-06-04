@@ -18,4 +18,16 @@ pub enum GvcError {
     UserCancelled,
 }
 
+impl GvcError {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::ProjectValidation(_) => "project_validation",
+            Self::TomlParsing(_) => "toml_parsing",
+            Self::GitOperation(_) => "git_operation",
+            Self::Io(_) => "io",
+            Self::UserCancelled => "user_cancelled",
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, GvcError>;

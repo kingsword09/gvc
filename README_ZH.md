@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-一个快速、独立的 CLI 工具，用于检查、列出、更新并新增 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
+一个快速、独立的 CLI 工具，用于检查、列出、更新、新增并诊断 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
 
 [English](README.md) | 简体中文
 
@@ -13,11 +13,12 @@
 - 🚀 **直接查询 Maven 仓库** - 无需 Gradle 运行时，纯 Rust 性能
 - 📦 **多仓库支持** - Maven Central、Google Maven、自定义仓库，智能过滤
 - 🎯 **智能版本检测** - 语义化版本控制，稳定性过滤（alpha、beta、RC、dev）
-- 📋 **四个命令**：
+- 📋 **五个命令**：
   - `check` - 查看可用更新但不应用
   - `update` - 应用依赖更新
   - `list` - 以 Maven 坐标格式显示所有依赖
   - `add` - 直接向版本目录写入依赖或插件并自动管理版本别名
+  - `doctor` - 诊断 Kotlin/Android 版本目录一致性
 - 🔒 **版本引用支持** - 处理 `[versions]` 表并自动解析
 - 🎨 **美观的 CLI 输出** - 进度条、彩色输出、清晰的摘要
 - ⚡ **智能请求优化** - 基于组模式的仓库过滤，最小化 HTTP 请求
@@ -43,12 +44,9 @@ cargo install gvc
 
 ```bash
 # Linux/macOS
-curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-x86_64-unknown-linux-gnu -o gvc
+curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64 -o gvc
 chmod +x gvc
 sudo mv gvc /usr/local/bin/
-
-# 或使用安装脚本
-curl -sSL https://raw.githubusercontent.com/kingsword09/gvc/main/install.sh | bash
 ```
 
 ### 从源码安装
@@ -71,9 +69,12 @@ cargo build --release
 ```bash
 gvc check              # 验证项目并列出可用更新
 gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
+gvc check --format json --fail-on-updates  # 适合 agent/CI 的更新检查
+gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
 ```
 
 - 如果版本目录不在当前目录，请使用 `--path /path/to/project`。
+- 使用 `--catalog gradle/custom.versions.toml` 可以指定项目内的某个版本目录文件。
 - 调试或开发时，可使用 `--verbose` 或设置环境变量 `GVC_VERBOSE=1` 以查看 HTTP 请求、缓存等详细日志。
 
 ## 使用
@@ -83,9 +84,23 @@ gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
 | 命令 | 作用 | 常用参数 |
 | --- | --- | --- |
 | `gvc check` | 验证项目并打印可用的依赖/插件更新（不会写入文件）。 | `--include-unstable` 展示预发布版本；`--path` 指定其他项目。 |
-| `gvc update` | 应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--interactive` 逐项确认；`--filter "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
+| `gvc update` | 预览或应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--dry-run` 预览；`--apply` 明确应用；`--target "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
 | `gvc list` | 以 Maven 坐标格式展示版本目录中的所有条目。 | `--path` 指向其他项目。 |
-| `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-p/--plugin` 指定插件；`--no-stable-only` 解析 `:latest` 时允许预发布版本；`--alias` / `--version-alias` 自定义键名。 |
+| `gvc doctor` | 离线检查 Kotlin、KSP、Android Gradle Plugin 与 Compose 的版本目录一致性。 | `--fail-on-issues` 在发现 warning/error 时以退出码 2 结束；`--format json` 适合自动化。 |
+| `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-P/--plugin` 指定插件；`--no-stable-only` 解析 `:latest` 时允许预发布版本；`--alias` / `--version-alias` 自定义键名。 |
+
+全局自动化参数：
+
+- `--format text|json` - 输出人类可读文本或稳定 JSON 对象。
+- `--quiet` - 在文本模式下隐藏进度输出。
+- `--no-color` - 禁用 ANSI 颜色。
+- `--catalog <file>` - 在 `--path` 项目内指定版本目录文件。
+
+退出码：
+
+- `0` - 命令成功完成。
+- `1` - 校验、解析、网络、Git 或写入错误。
+- `2` - `gvc check --fail-on-updates` 发现可用更新，或 `gvc doctor --fail-on-issues` 发现诊断项。
 
 ### 检查更新
 
@@ -103,12 +118,19 @@ gvc --path /path/to/project check
 gvc check --include-unstable
 ```
 
+用于 CI 或 agent 的更新门禁：
+
+```bash
+gvc check --format json --fail-on-updates
+```
+
 ### 列出依赖
 
 以 Maven 坐标格式显示所有依赖（用于验证）：
 
 ```bash
 gvc list
+gvc list --format json
 ```
 
 输出示例：
@@ -129,6 +151,26 @@ Summary:
   2 plugins
 ```
 
+### 诊断 Kotlin/Android 版本目录
+
+对 Kotlin/Android 项目的版本目录运行离线诊断：
+
+```bash
+gvc doctor
+gvc doctor --format json
+gvc doctor --fail-on-issues
+```
+
+当前 doctor 会检查：
+
+- Kotlin Gradle Plugin 条目是否使用同一个版本。
+- KSP 版本是否使用预期的 `<kotlin-version>-<ksp-version>` 前缀。
+- Kotlin 2.x + Compose 项目是否声明 `org.jetbrains.kotlin.plugin.compose`。
+- Kotlin Compose compiler 插件版本是否与 Kotlin Gradle Plugin 一致。
+- `com.android.*` 插件是否共享同一个 Android Gradle Plugin 版本。
+
+`doctor` 只检查版本目录且不会访问网络，适合 CI 和 agent 工作流。
+
 ### 更新依赖
 
 应用依赖更新（默认仅更新稳定版本）：
@@ -141,14 +183,25 @@ gvc update
 
 - `--stable-only` - 仅更新到稳定版本（默认启用）
 - `--no-stable-only` - 允许更新到不稳定版本（alpha、beta、RC）
+- `--dry-run` - 只预览更新，不写入版本目录
+- `--apply` - 明确应用更新（默认行为）
+- `--target <glob>` - 使用 glob 匹配别名，仅更新匹配到的依赖（例如 `*okhttp*`）
 - `-i`, `--interactive` - 在写入前逐项确认或跳过每个更新
-- `--filter <glob>` - 使用 glob 匹配别名，仅更新匹配到的依赖（例如 `*okhttp*`）
+- `--filter <glob>` - `--target` 的向后兼容别名
 - `--no-git` - 跳过 Git 操作（不创建分支/提交）
 - `--path`, `-p` - 指定项目目录
+- `--format json` - 以 JSON 输出本次应用的更新报告
 
 交互模式会在每个候选更新处暂停，展示旧版本与新版本，并允许你选择接受、跳过、应用剩余全部更新或直接取消。
 
-当提供 `--filter` 时，GVC 会把所有符合条件的库、版本别名或插件列出来让你挑选目标；配合 `-i/--interactive` 可以进一步选择想安装的稳定版或预发布版本。若未开启交互模式，只有在过滤条件精确匹配一个条目时才会自动选择最新可升级版本；匹配多个条目时需要收窄过滤条件或添加 `--interactive`。
+dry-run 模式是只读的，不要求 Git 工作区干净：
+
+```bash
+gvc update --dry-run
+gvc update --dry-run --target kotlin --format json
+```
+
+当提供 `--target` 时，GVC 会把所有符合条件的库、版本别名或插件列出来让你挑选目标；配合 `-i/--interactive` 可以进一步选择想安装的稳定版或预发布版本。若未开启交互模式，只有在目标模式精确匹配一个条目时才会自动选择最新可升级版本；匹配多个条目时需要收窄目标或添加 `--interactive`。
 
 **示例：**
 
@@ -163,7 +216,7 @@ gvc update --no-stable-only
 gvc update --interactive
 
 # 仅更新匹配到关键字的依赖
-gvc update --filter "*okhttp*"
+gvc update --target "*okhttp*"
 
 # 不使用 Git 集成更新
 gvc update --no-git
@@ -174,19 +227,19 @@ gvc update --path /path/to/project
 
 #### 定向更新
 
-当提供 `--filter` 时，GVC 会执行以下步骤：
+当提供 `--target` 时，GVC 会执行以下步骤：
 
 1. 列出所有与 glob 模式匹配的版本别名、库或插件（匹配不区分大小写）。
 2. 让你选择要更新的目标条目。
 3. 从配置的仓库里拉取该依赖的全部版本信息。
 4. 若打开交互模式（`-i`），可以在最近的稳定版和预发布版本中选择（`m` 展示更多、`s` 跳过、`q` 取消）。
-5. 若未开启交互模式且只匹配到一个条目，则会依据稳定性规则自动挑选最新可升级版本；若匹配多个条目，GVC 会提示收窄过滤条件或添加 `--interactive`。
+5. 若未开启交互模式且只匹配到一个条目，则会依据稳定性规则自动挑选最新可升级版本；若匹配多个条目，GVC 会提示收窄目标或添加 `--interactive`。
 
 这样就能在不影响其他依赖的情况下，精确更新单个库或插件，甚至指定升级到某个预发布版本。
 
 ```bash
 # 为别名中包含 "okhttp" 的依赖挑选目标版本
-gvc update --filter "*okhttp*" --interactive
+gvc update --target "*okhttp*" --interactive
 ```
 
 - 不加 `--interactive` 时，GVC 会按照稳定性规则自动选择最新版本，适合脚本化使用。
@@ -200,17 +253,19 @@ gvc update --filter "*okhttp*" --interactive
 # 添加库（格式：group:artifact:version，默认目标）
 gvc add androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
 
-# 添加插件（格式：plugin.id:version，对应 -p 快捷写法）
-gvc add -p org.jetbrains.kotlin.jvm:1.9.24
+# 添加插件（格式：plugin.id:version）
+gvc add -P org.jetbrains.kotlin.jvm:1.9.24
 
 # 自动解析最新版本
 gvc add com.squareup.okhttp3:okhttp:latest
-gvc add -p org.jetbrains.kotlin.android:latest --no-stable-only  # 需要时允许预发布版本
+gvc add -P org.jetbrains.kotlin.android:latest --no-stable-only  # 需要时允许预发布版本
 ```
 
 - GVC 会自动生成目录别名和版本键；若需自定义，可使用 `--alias` 或 `--version-alias`。
+- `-P` 是插件短参数；全局 `-p/--path` 专用于项目路径。
 - 库条目写入为 `{ module = "group:artifact", version = { ref = "<alias>" } }`。
 - 插件条目写入为 `{ id = "plugin.id", version = { ref = "<alias>" } }`。
+- 已存在的版本别名不会被隐式更新。只有在明确希望新条目移动某个已有版本键时，才传入 `--update-version-alias`。
 - 写入前会根据当前仓库配置（库）或 Gradle Plugin Portal（插件）校验坐标与版本是否存在；处理 `:latest` 时默认选择稳定版，可通过 `--no-stable-only` 允许预发布版本。
 - `--path` 参数的行为与其他命令一致。
 

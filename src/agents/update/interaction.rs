@@ -73,7 +73,7 @@ impl UpdateInteraction {
         }
 
         let category_label = format!("[{}]", category);
-        println!(
+        crate::outln!(
             "\n{} {} {} {} to {}",
             category_label.cyan().bold(),
             name.white().bold(),
@@ -83,12 +83,12 @@ impl UpdateInteraction {
         );
 
         if self.apply_all {
-            println!("{}", "Auto-applying (previously selected 'all').".dimmed());
+            crate::outln!("{}", "Auto-applying (previously selected 'all').".dimmed());
             return Ok(true);
         }
 
         loop {
-            print!("{}", "Apply this update? [Y/n/a/q]: ".bold());
+            crate::out!("{}", "Apply this update? [Y/n/a/q]: ".bold());
             io::stdout().flush()?;
 
             let mut input = String::new();
@@ -100,11 +100,11 @@ impl UpdateInteraction {
                     return Ok(true);
                 }
                 "n" | "no" => {
-                    println!("{}", "Skipping this update.".dimmed());
+                    crate::outln!("{}", "Skipping this update.".dimmed());
                     return Ok(false);
                 }
                 "a" | "all" => {
-                    println!(
+                    crate::outln!(
                         "{}",
                         "Applying this and all remaining updates.".green().bold()
                     );
@@ -112,11 +112,11 @@ impl UpdateInteraction {
                     return Ok(true);
                 }
                 "q" | "quit" => {
-                    println!("{}", "Stopping update process at user request.".yellow());
+                    crate::outln!("{}", "Stopping update process at user request.".yellow());
                     return Err(GvcError::UserCancelled);
                 }
                 _ => {
-                    println!(
+                    crate::outln!(
                         "{}",
                         "Please answer with y(es), n(o), a(ll), or q(quit).".red()
                     );

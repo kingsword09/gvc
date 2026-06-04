@@ -69,10 +69,10 @@ impl<'a> VersionHandler<'a> {
             return Ok(report);
         }
 
-        println!("\n{}", "Checking version updates...".cyan());
+        crate::outln!("\n{}", "Checking version updates...".cyan());
 
         let pb = ProgressBar::new(versions_data.len() as u64);
-        if self.interaction.is_enabled() {
+        if self.interaction.is_enabled() || crate::utils::output::is_quiet() {
             pb.set_draw_target(ProgressDrawTarget::hidden());
         }
         pb.set_style(
@@ -158,10 +158,13 @@ impl<'a> VersionHandler<'a> {
             return Ok(report);
         }
 
-        println!("\n{}", "Checking version variables...".cyan());
+        crate::outln!("\n{}", "Checking version variables...".cyan());
 
         let keys: Vec<String> = versions_data.iter().map(|(k, _)| k.clone()).collect();
         let pb = ProgressBar::new(keys.len() as u64);
+        if crate::utils::output::is_quiet() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")

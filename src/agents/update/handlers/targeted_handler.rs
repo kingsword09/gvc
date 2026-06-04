@@ -50,7 +50,7 @@ impl<'a> TargetedHandler<'a> {
         let mut candidates = TargetCandidateCollector::new(doc, &matcher).collect();
 
         if candidates.is_empty() {
-            println!(
+            crate::outln!(
                 "{}",
                 format!("No dependencies matched pattern '{}'.", pattern).yellow()
             );
@@ -78,7 +78,7 @@ impl<'a> TargetedHandler<'a> {
         };
 
         if chosen_version == candidate.current_version {
-            println!(
+            crate::outln!(
                 "{}",
                 "Selected version matches the current version; nothing to update.".yellow()
             );
@@ -153,7 +153,7 @@ impl<'a> TargetedHandler<'a> {
             }
         }
 
-        println!(
+        crate::outln!(
             "{}",
             format!(
                 "Updated {}: {} → {}",
@@ -388,7 +388,7 @@ impl<'a> TargetCandidateSelector<'a> {
 
     fn select(&mut self, candidates: &[TargetCandidate], pattern: &str) -> Result<usize> {
         if candidates.len() == 1 {
-            println!(
+            crate::outln!(
                 "{}",
                 format!("Found one match: {}", candidates[0].describe_with_version()).cyan()
             );
@@ -403,16 +403,16 @@ impl<'a> TargetCandidateSelector<'a> {
             )));
         }
 
-        println!(
+        crate::outln!(
             "{}",
             format!("Found {} matching dependencies:", candidates.len()).cyan()
         );
         for (idx, candidate) in candidates.iter().enumerate() {
-            println!("  {:>2}) {}", idx + 1, candidate.describe_with_version());
+            crate::outln!("  {:>2}) {}", idx + 1, candidate.describe_with_version());
         }
 
         loop {
-            print!(
+            crate::out!(
                 "Select dependency to update [1-{}] (or 'q' to cancel): ",
                 candidates.len()
             );
@@ -432,7 +432,7 @@ impl<'a> TargetCandidateSelector<'a> {
                 }
             }
 
-            println!("{}", "Invalid selection. Please try again.".red());
+            crate::outln!("{}", "Invalid selection. Please try again.".red());
         }
     }
 }
@@ -462,14 +462,14 @@ impl<'a> VersionSelector<'a> {
     fn select(&mut self, candidate: &TargetCandidate, stable_only: bool) -> Result<Option<String>> {
         let version_entries = self.fetch_versions_for_candidate(candidate, stable_only)?;
         if version_entries.is_empty() {
-            println!(
+            crate::outln!(
                 "{}",
                 format!("No versions found for {}.", candidate.display_name()).yellow()
             );
             return Ok(None);
         }
 
-        println!(
+        crate::outln!(
             "\n{}",
             format!("Available versions for {}:", candidate.display_name()).cyan()
         );
@@ -546,7 +546,7 @@ impl<'a> VersionSelector<'a> {
         loop {
             Self::print_version_page(entries, limit);
 
-            print!("Select version [1-{} | m/s/q]: ", limit);
+            crate::out!("Select version [1-{} | m/s/q]: ", limit);
             std::io::stdout().flush()?;
 
             let mut input = String::new();
@@ -585,19 +585,19 @@ impl<'a> VersionSelector<'a> {
                 format!(" ({})", labels.join(", "))
             };
 
-            println!("  {:>2}) {}{}", idx + 1, entry.value.green(), label_str);
+            crate::outln!("  {:>2}) {}{}", idx + 1, entry.value.green(), label_str);
         }
 
         if limit < entries.len() {
-            println!("  m ) Show more versions");
+            crate::outln!("  m ) Show more versions");
         }
-        println!("  s ) Skip update");
-        println!("  q ) Cancel");
+        crate::outln!("  s ) Skip update");
+        crate::outln!("  q ) Cancel");
     }
 
     fn expand_limit(limit: usize, total: usize) -> usize {
         if limit >= total {
-            println!("{}", "All versions are already displayed.".yellow());
+            crate::outln!("{}", "All versions are already displayed.".yellow());
             limit
         } else {
             min(limit + 10, total)
@@ -612,18 +612,18 @@ impl<'a> VersionSelector<'a> {
         input: &str,
     ) -> Result<Option<String>> {
         let Ok(choice) = input.parse::<usize>() else {
-            println!("{}", "Invalid selection. Please try again.".red());
+            crate::outln!("{}", "Invalid selection. Please try again.".red());
             return Ok(None);
         };
 
         if !(1..=limit).contains(&choice) {
-            println!("{}", "Invalid selection. Please try again.".red());
+            crate::outln!("{}", "Invalid selection. Please try again.".red());
             return Ok(None);
         }
 
         let entry = &entries[choice - 1];
         if entry.is_current {
-            println!(
+            crate::outln!(
                 "{}",
                 "Selected version matches current version; choose another or skip.".yellow()
             );
@@ -634,7 +634,7 @@ impl<'a> VersionSelector<'a> {
             .version_strategy
             .is_upgrade(&candidate.current_version, &entry.value)
         {
-            println!(
+            crate::outln!(
                 "{}",
                 format!(
                     "Version {} is not a valid upgrade from {} according to version strategy.",

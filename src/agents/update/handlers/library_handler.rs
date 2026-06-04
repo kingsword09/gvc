@@ -40,10 +40,10 @@ impl<'a> LibraryHandler<'a> {
         let mut report = UpdateReport::new();
         let keys: Vec<String> = libraries.iter().map(|(k, _)| k.to_string()).collect();
 
-        println!("\n{}", "Checking library updates...".cyan());
+        crate::outln!("\n{}", "Checking library updates...".cyan());
 
         let pb = ProgressBar::new(keys.len() as u64);
-        if self.interaction.is_enabled() {
+        if self.interaction.is_enabled() || crate::utils::output::is_quiet() {
             pb.set_draw_target(ProgressDrawTarget::hidden());
         }
         pb.set_style(
@@ -80,9 +80,12 @@ impl<'a> LibraryHandler<'a> {
         let mut report = UpdateReport::new();
         let keys: Vec<String> = libraries.iter().map(|(k, _)| k.to_string()).collect();
 
-        println!("\n{}", "Checking library updates...".cyan());
+        crate::outln!("\n{}", "Checking library updates...".cyan());
 
         let pb = ProgressBar::new(keys.len() as u64);
+        if crate::utils::output::is_quiet() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")

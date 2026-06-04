@@ -58,7 +58,7 @@ fn resolve_library_version(
             }
         })?;
 
-    println!(
+    crate::outln!(
         "   {}",
         format!("✓ {group}:{artifact} @ {target_version}").green()
     );
@@ -91,7 +91,7 @@ fn resolve_plugin_version(plugin_id: &str, version: String, stable_only: bool) -
             }
         })?;
 
-    println!(
+    crate::outln!(
         "   {}",
         format!("✓ plugin {plugin_id} @ {target_version}").green()
     );

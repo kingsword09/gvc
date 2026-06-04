@@ -56,7 +56,7 @@ impl GradleConfigParser {
 
         if repositories.is_empty() {
             // Fall back to defaults when no repositories are configured explicitly
-            println!("⚠️  No repositories found in Gradle config, using defaults");
+            crate::outln!("⚠️  No repositories found in Gradle config, using defaults");
             repositories = self.get_default_repositories();
         }
 

@@ -1,5 +1,6 @@
 pub mod catalog_editor;
 pub mod dependency_updater;
+pub mod doctor;
 pub mod project_scanner;
 pub mod version_control;
 
@@ -9,5 +10,6 @@ pub use update::UpdateReport;
 
 pub use catalog_editor::{AddResult, AddTargetKind, CatalogEditor};
 pub use dependency_updater::DependencyUpdater;
+pub use doctor::{DoctorReport, DoctorSeverity, KotlinDoctor};
 pub use project_scanner::ProjectScannerAgent;
 pub use version_control::VersionControlAgent;

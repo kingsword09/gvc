@@ -1,22 +1,109 @@
-use crate::agents::{AddResult, AddTargetKind, UpdateReport};
+use crate::agents::{AddResult, AddTargetKind, DoctorReport, DoctorSeverity, UpdateReport};
+use crate::error::{GvcError, Result};
 use crate::gradle::Repository;
 use crate::maven::version::Version;
 use crate::utils::toml::TomlUtils;
 use colored::Colorize;
-use std::collections::HashMap;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
 use toml_edit::DocumentMut;
 
+pub(super) fn print_json(value: &Value) -> Result<()> {
+    let rendered = serde_json::to_string_pretty(value)
+        .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize JSON output: {e}")))?;
+    println!("{rendered}");
+    Ok(())
+}
+
+pub(super) fn updates_json(report: &UpdateReport) -> Value {
+    json!({
+        "total": report.total_updates(),
+        "versions": update_map_json(&report.version_updates),
+        "libraries": update_map_json(&report.library_updates),
+        "plugins": update_map_json(&report.plugin_updates),
+    })
+}
+
+pub(super) fn dependencies_json(doc: &DocumentMut) -> Value {
+    let version_refs = collect_version_refs(doc);
+    let libraries = collect_libraries_json(doc, &version_refs);
+    let plugins = collect_plugins_json(doc, &version_refs);
+
+    json!({
+        "libraries": libraries,
+        "plugins": plugins,
+        "summary": {
+            "libraries": libraries.len(),
+            "plugins": plugins.len(),
+        }
+    })
+}
+
+pub(super) fn doctor_json(report: &DoctorReport) -> Result<Value> {
+    let findings = serde_json::to_value(&report.findings)
+        .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize doctor findings: {e}")))?;
+
+    Ok(json!({
+        "summary": {
+            "total": report.total(),
+            "errors": report.errors(),
+            "warnings": report.warnings(),
+            "info": report.infos(),
+        },
+        "findings": findings,
+    }))
+}
+
+pub(super) fn add_target_json(target: AddTargetKind) -> &'static str {
+    match target {
+        AddTargetKind::Library => "library",
+        AddTargetKind::Plugin => "plugin",
+    }
+}
+
+pub(super) fn print_doctor_report(report: &DoctorReport) {
+    crate::outln!("\n{}", "Kotlin/Android Doctor:".cyan().bold());
+
+    if !report.has_issues() {
+        crate::outln!("{}", "✓ No Kotlin/Android catalog issues found".green());
+    } else {
+        crate::outln!(
+            "{}",
+            format!(
+                "{} finding(s): {} error(s), {} warning(s)",
+                report.total(),
+                report.errors(),
+                report.warnings()
+            )
+            .yellow()
+        );
+    }
+
+    for finding in &report.findings {
+        crate::outln!(
+            "\n{} {}",
+            severity_label(&finding.severity),
+            finding.code.white().bold()
+        );
+        crate::outln!("  {}", finding.message);
+        crate::outln!("  Recommendation: {}", finding.recommendation.dimmed());
+        for evidence in &finding.evidence {
+            crate::outln!("  - {}", evidence);
+        }
+    }
+}
+
 pub(super) fn print_repositories(repositories: &[Repository]) {
-    println!("   Found {} repositories:", repositories.len());
+    crate::outln!("   Found {} repositories:", repositories.len());
     for repo in repositories {
-        println!("   • {} ({})", repo.name.bright_cyan(), repo.url.dimmed());
+        crate::outln!("   • {} ({})", repo.name.bright_cyan(), repo.url.dimmed());
     }
 }
 
 pub(super) fn print_add_result(result: &AddResult) {
     match result.target {
         AddTargetKind::Library => {
-            println!(
+            crate::outln!(
                 "{}",
                 format!(
                     "✓ Library '{}' added with version alias '{}'",
@@ -26,7 +113,7 @@ pub(super) fn print_add_result(result: &AddResult) {
             );
         }
         AddTargetKind::Plugin => {
-            println!(
+            crate::outln!(
                 "{}",
                 format!(
                     "✓ Plugin '{}' added with version alias '{}'",
@@ -40,29 +127,29 @@ pub(super) fn print_add_result(result: &AddResult) {
 
 pub(super) fn print_available_updates(report: &UpdateReport, stable_only: bool) {
     if report.is_empty() {
-        println!("\n{}", "✨ All dependencies are up to date!".green().bold());
+        crate::outln!("\n{}", "✨ All dependencies are up to date!".green().bold());
         return;
     }
 
-    println!("\n{}", "📦 Available Updates:".cyan().bold());
-    println!(
+    crate::outln!("\n{}", "📦 Available Updates:".cyan().bold());
+    crate::outln!(
         "{}",
         format!("Found {} update(s)", report.total_updates()).yellow()
     );
 
     if stable_only {
-        println!("{}", "   (showing stable versions only)".dimmed());
+        crate::outln!("{}", "   (showing stable versions only)".dimmed());
     } else {
-        println!(
+        crate::outln!(
             "{}",
             "   (showing all versions including pre-releases)".dimmed()
         );
     }
 
     if !report.version_updates.is_empty() {
-        println!("\n{}:", "Version updates".cyan().bold());
+        crate::outln!("\n{}:", "Version updates".cyan().bold());
         for (name, (old, new)) in &report.version_updates {
-            println!(
+            crate::outln!(
                 "  • {} {} → {}",
                 name.white().bold(),
                 old.red(),
@@ -72,14 +159,14 @@ pub(super) fn print_available_updates(report: &UpdateReport, stable_only: bool) 
     }
 
     if !report.library_updates.is_empty() {
-        println!("\n{}:", "Library updates".cyan().bold());
+        crate::outln!("\n{}:", "Library updates".cyan().bold());
         for (name, (old, new)) in &report.library_updates {
             let stability = if Version::parse(new).is_stable() {
                 "stable".green()
             } else {
                 "pre-release".yellow()
             };
-            println!(
+            crate::outln!(
                 "  • {} {} → {} ({})",
                 name.white().bold(),
                 old.dimmed(),
@@ -90,9 +177,9 @@ pub(super) fn print_available_updates(report: &UpdateReport, stable_only: bool) 
     }
 
     if !report.plugin_updates.is_empty() {
-        println!("\n{}:", "Plugin updates".cyan().bold());
+        crate::outln!("\n{}:", "Plugin updates".cyan().bold());
         for (name, (old, new)) in &report.plugin_updates {
-            println!(
+            crate::outln!(
                 "  • {} {} → {}",
                 name.white().bold(),
                 old.red(),
@@ -101,18 +188,18 @@ pub(super) fn print_available_updates(report: &UpdateReport, stable_only: bool) 
         }
     }
 
-    println!("\n{}", "To apply these updates, run:".dimmed());
+    crate::outln!("\n{}", "To apply these updates, run:".dimmed());
     if stable_only {
-        println!("  {}", "gvc update --stable-only".cyan());
+        crate::outln!("  {}", "gvc update".cyan());
     } else {
-        println!("  {}", "gvc update".cyan());
+        crate::outln!("  {}", "gvc update --no-stable-only".cyan());
     }
 }
 
 pub(super) fn print_dependencies(doc: &DocumentMut) {
     let version_refs = collect_version_refs(doc);
 
-    println!("\n{}", "📦 Dependencies:".cyan().bold());
+    crate::outln!("\n{}", "📦 Dependencies:".cyan().bold());
     print_libraries(doc, &version_refs);
     print_plugins(doc, &version_refs);
     print_summary(doc);
@@ -120,20 +207,20 @@ pub(super) fn print_dependencies(doc: &DocumentMut) {
 
 pub(super) fn print_update_report(report: &UpdateReport) {
     if report.is_empty() {
-        println!("\n{}", "No updates were found".yellow());
+        crate::outln!("\n{}", "No updates were found".yellow());
         return;
     }
 
-    println!("\n{}", "Update Summary:".cyan().bold());
-    println!(
+    crate::outln!("\n{}", "Update Summary:".cyan().bold());
+    crate::outln!(
         "{}",
         format!("Total updates: {}", report.total_updates()).green()
     );
 
     if !report.version_updates.is_empty() {
-        println!("\n{}:", "Version updates".cyan());
+        crate::outln!("\n{}:", "Version updates".cyan());
         for (name, (old, new)) in &report.version_updates {
-            println!(
+            crate::outln!(
                 "  • {} {} → {}",
                 name.white().bold(),
                 old.red(),
@@ -143,9 +230,9 @@ pub(super) fn print_update_report(report: &UpdateReport) {
     }
 
     if !report.library_updates.is_empty() {
-        println!("\n{}:", "Library updates".cyan());
+        crate::outln!("\n{}:", "Library updates".cyan());
         for (name, (old, new)) in &report.library_updates {
-            println!(
+            crate::outln!(
                 "  • {} {} → {}",
                 name.white().bold(),
                 old.red(),
@@ -155,9 +242,9 @@ pub(super) fn print_update_report(report: &UpdateReport) {
     }
 
     if !report.plugin_updates.is_empty() {
-        println!("\n{}:", "Plugin updates".cyan());
+        crate::outln!("\n{}:", "Plugin updates".cyan());
         for (name, (old, new)) in &report.plugin_updates {
-            println!(
+            crate::outln!(
                 "  • {} {} → {}",
                 name.white().bold(),
                 old.red(),
@@ -175,20 +262,20 @@ fn print_libraries(doc: &DocumentMut, version_refs: &HashMap<String, String>) {
         return;
     }
 
-    println!("\n{}", "Libraries:".yellow().bold());
+    crate::outln!("\n{}", "Libraries:".yellow().bold());
     let mut lib_list: Vec<_> = libraries.iter().collect();
     lib_list.sort_by_key(|(key, _)| *key);
 
     for (name, value) in lib_list {
         let Some(details) = TomlUtils::extract_library_details(value) else {
-            println!("  {} {}", name.yellow(), "(coordinate unknown)".dimmed());
+            crate::outln!("  {} {}", name.yellow(), "(coordinate unknown)".dimmed());
             continue;
         };
 
         let coordinate = format!("{}:{}", details.group, details.artifact);
         match resolve_version(details.version, details.version_ref, version_refs) {
-            Some(version) => println!("  {}", format!("{}:{}", coordinate, version).cyan()),
-            None => println!("  {} {}", coordinate.cyan(), "(version unknown)".dimmed()),
+            Some(version) => crate::outln!("  {}", format!("{}:{}", coordinate, version).cyan()),
+            None => crate::outln!("  {} {}", coordinate.cyan(), "(version unknown)".dimmed()),
         }
     }
 }
@@ -201,19 +288,21 @@ fn print_plugins(doc: &DocumentMut, version_refs: &HashMap<String, String>) {
         return;
     }
 
-    println!("\n{}", "Plugins:".yellow().bold());
+    crate::outln!("\n{}", "Plugins:".yellow().bold());
     let mut plugin_list: Vec<_> = plugins.iter().collect();
     plugin_list.sort_by_key(|(key, _)| *key);
 
     for (name, value) in plugin_list {
         let Some(details) = TomlUtils::extract_plugin_details(name, value) else {
-            println!("  {} {}", name.yellow(), "(plugin unknown)".dimmed());
+            crate::outln!("  {} {}", name.yellow(), "(plugin unknown)".dimmed());
             continue;
         };
 
         match resolve_version(details.version, details.version_ref, version_refs) {
-            Some(version) => println!("  {}", format!("{}:{}", details.id, version).magenta()),
-            None => println!(
+            Some(version) => {
+                crate::outln!("  {}", format!("{}:{}", details.id, version).magenta())
+            }
+            None => crate::outln!(
                 "  {} {}",
                 details.id.magenta(),
                 "(version unknown)".dimmed()
@@ -234,9 +323,9 @@ fn print_summary(doc: &DocumentMut) {
         .map(|t| t.len())
         .unwrap_or(0);
 
-    println!("\n{}", "Summary:".cyan().bold());
-    println!("  {} libraries", library_count.to_string().yellow());
-    println!("  {} plugins", plugin_count.to_string().yellow());
+    crate::outln!("\n{}", "Summary:".cyan().bold());
+    crate::outln!("  {} libraries", library_count.to_string().yellow());
+    crate::outln!("  {} plugins", plugin_count.to_string().yellow());
 }
 
 fn collect_version_refs(doc: &DocumentMut) -> HashMap<String, String> {
@@ -268,4 +357,100 @@ fn resolve_version(
                 .unwrap_or_else(|| format!("${{{}}}", ref_name))
         })
     })
+}
+
+fn update_map_json(updates: &HashMap<String, (String, String)>) -> Vec<Value> {
+    let sorted: BTreeMap<_, _> = updates.iter().collect();
+    sorted
+        .into_iter()
+        .map(|(alias, (current, latest))| {
+            json!({
+                "alias": alias,
+                "current_version": current,
+                "latest_version": latest,
+            })
+        })
+        .collect()
+}
+
+fn collect_libraries_json(doc: &DocumentMut, version_refs: &HashMap<String, String>) -> Vec<Value> {
+    let Some(libraries) = doc.get("libraries").and_then(|v| v.as_table()) else {
+        return Vec::new();
+    };
+
+    let mut entries: Vec<_> = libraries.iter().collect();
+    entries.sort_by_key(|(alias, _)| *alias);
+    entries
+        .into_iter()
+        .map(|(alias, item)| {
+            if let Some(details) = TomlUtils::extract_library_details(item) {
+                let coordinate = format!("{}:{}", details.group, details.artifact);
+                let version = resolve_version(
+                    details.version.clone(),
+                    details.version_ref.clone(),
+                    version_refs,
+                );
+                json!({
+                    "alias": alias,
+                    "group": details.group,
+                    "artifact": details.artifact,
+                    "coordinate": coordinate,
+                    "version": version,
+                    "version_ref": details.version_ref,
+                })
+            } else {
+                json!({
+                    "alias": alias,
+                    "coordinate": null,
+                    "version": null,
+                    "version_ref": null,
+                })
+            }
+        })
+        .collect()
+}
+
+fn collect_plugins_json(doc: &DocumentMut, version_refs: &HashMap<String, String>) -> Vec<Value> {
+    let Some(plugins) = doc.get("plugins").and_then(|v| v.as_table()) else {
+        return Vec::new();
+    };
+
+    let mut entries: Vec<_> = plugins.iter().collect();
+    entries.sort_by_key(|(alias, _)| *alias);
+    entries
+        .into_iter()
+        .map(|(alias, item)| {
+            if let Some(details) = TomlUtils::extract_plugin_details(alias, item) {
+                let coordinate = details.id.clone();
+                let version = resolve_version(
+                    details.version.clone(),
+                    details.version_ref.clone(),
+                    version_refs,
+                );
+                json!({
+                    "alias": alias,
+                    "id": details.id,
+                    "coordinate": coordinate,
+                    "version": version,
+                    "version_ref": details.version_ref,
+                })
+            } else {
+                json!({
+                    "alias": alias,
+                    "id": null,
+                    "coordinate": null,
+                    "version": null,
+                    "version_ref": null,
+                })
+            }
+        })
+        .collect()
+}
+
+fn severity_label(severity: &DoctorSeverity) -> colored::ColoredString {
+    match severity {
+        DoctorSeverity::Info => "[info]".cyan(),
+        DoctorSeverity::Warning => "[warning]".yellow(),
+        DoctorSeverity::Error => "[error]".red().bold(),
+    }
 }
