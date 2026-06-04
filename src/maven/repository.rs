@@ -1,5 +1,6 @@
 use crate::error::{GvcError, Result};
 use crate::gradle::Repository as GradleRepository;
+use crate::maven::metadata_cache::MetadataCache;
 use crate::maven::version::{Version, VersionComparator};
 use crate::repository::{Coordinate, RepositoryClient};
 use quick_xml::de::from_str;
@@ -18,6 +19,7 @@ const MAX_METADATA_BYTES: usize = 10 * 1024 * 1024;
 pub struct MavenRepository {
     client: reqwest::blocking::Client,
     repositories: Vec<GradleRepository>,
+    metadata_cache: MetadataCache,
 }
 
 impl MavenRepository {
@@ -28,6 +30,7 @@ impl MavenRepository {
         Ok(Self {
             client,
             repositories,
+            metadata_cache: MetadataCache::new(),
         })
     }
 
@@ -44,6 +47,7 @@ impl MavenRepository {
         Ok(Self {
             client,
             repositories,
+            metadata_cache: MetadataCache::new(),
         })
     }
 
@@ -123,11 +127,14 @@ impl MavenRepository {
         group: &str,
         artifact: &str,
     ) -> Result<Option<Vec<String>>> {
-        let group_path = group.replace('.', "/");
-        let metadata_url = format!(
-            "{}/{}/{}/maven-metadata.xml",
-            repo_url, group_path, artifact
-        );
+        let metadata_url = Self::metadata_url(repo_url, group, artifact);
+
+        if let Some(versions) = self.metadata_cache.get(&metadata_url)? {
+            if std::env::var("GVC_VERBOSE").is_ok() {
+                eprintln!("[VERBOSE] Cache hit: {}", metadata_url);
+            }
+            return Ok(Some(versions));
+        }
 
         if std::env::var("GVC_VERBOSE").is_ok() {
             eprintln!("[VERBOSE] Fetching: {}", metadata_url);
@@ -164,6 +171,7 @@ impl MavenRepository {
             .map_err(|e| GvcError::TomlParsing(format!("Failed to parse Maven metadata: {}", e)))?;
 
         let versions: Vec<String> = metadata.versioning.versions.version.to_vec();
+        self.metadata_cache.insert(metadata_url, versions.clone())?;
 
         Ok(Some(versions))
     }
@@ -250,6 +258,14 @@ impl MavenRepository {
             .danger_accept_invalid_certs(false)
             .build()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))
+    }
+
+    fn metadata_url(repo_url: &str, group: &str, artifact: &str) -> String {
+        let group_path = group.replace('.', "/");
+        format!(
+            "{}/{}/{}/maven-metadata.xml",
+            repo_url, group_path, artifact
+        )
     }
 
     fn default_repositories() -> Vec<GradleRepository> {
@@ -342,6 +358,18 @@ mod tests {
     fn rejects_private_host() {
         let err = MavenRepository::validate_repository_url("https://127.0.0.1/repo").unwrap_err();
         assert!(matches!(err, GvcError::ProjectValidation(_)));
+    }
+
+    #[test]
+    fn builds_metadata_url() {
+        assert_eq!(
+            MavenRepository::metadata_url(
+                "https://repo.example.com/maven2",
+                "com.example",
+                "library"
+            ),
+            "https://repo.example.com/maven2/com/example/library/maven-metadata.xml"
+        );
     }
 }
 
