@@ -1,4 +1,5 @@
 use crate::error::{GvcError, Result};
+use crate::maven::metadata_cache::MetadataCache;
 use crate::maven::version::{Version, VersionComparator};
 use crate::repository::{Coordinate, RepositoryClient};
 use quick_xml::de::from_str;
@@ -12,6 +13,7 @@ const MAX_METADATA_BYTES: usize = 10 * 1024 * 1024;
 /// Gradle Plugin Portal client
 pub struct PluginPortalClient {
     client: Client,
+    metadata_cache: MetadataCache,
 }
 
 impl PluginPortalClient {
@@ -23,7 +25,10 @@ impl PluginPortalClient {
             .build()
             .map_err(|e| GvcError::Io(std::io::Error::other(e)))?;
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            metadata_cache: MetadataCache::new(),
+        })
     }
 
     /// Fetch the latest version of a Gradle plugin
@@ -96,11 +101,14 @@ impl PluginPortalClient {
         group: &str,
         artifact: &str,
     ) -> Result<Option<Vec<String>>> {
-        let group_path = group.replace('.', "/");
-        let metadata_url = format!(
-            "{}/{}/{}/maven-metadata.xml",
-            GRADLE_PLUGIN_PORTAL, group_path, artifact
-        );
+        let metadata_url = Self::metadata_url(group, artifact);
+
+        if let Some(versions) = self.metadata_cache.get(&metadata_url)? {
+            if std::env::var("GVC_VERBOSE").is_ok() {
+                eprintln!("[VERBOSE] Cache hit: {}", metadata_url);
+            }
+            return Ok(Some(versions));
+        }
 
         if std::env::var("GVC_VERBOSE").is_ok() {
             eprintln!("[VERBOSE] Fetching: {}", metadata_url);
@@ -138,8 +146,17 @@ impl PluginPortalClient {
         })?;
 
         let versions: Vec<String> = metadata.versioning.versions.version.to_vec();
+        self.metadata_cache.insert(metadata_url, versions.clone())?;
 
         Ok(Some(versions))
+    }
+
+    fn metadata_url(group: &str, artifact: &str) -> String {
+        let group_path = group.replace('.', "/");
+        format!(
+            "{}/{}/{}/maven-metadata.xml",
+            GRADLE_PLUGIN_PORTAL, group_path, artifact
+        )
     }
 }
 
@@ -191,6 +208,17 @@ mod tests {
         let plugin_id = "org.jetbrains.kotlin.jvm";
         let artifact = format!("{}.gradle.plugin", plugin_id);
         assert_eq!(artifact, "org.jetbrains.kotlin.jvm.gradle.plugin");
+    }
+
+    #[test]
+    fn builds_plugin_metadata_url() {
+        assert_eq!(
+            PluginPortalClient::metadata_url(
+                "org.jetbrains.kotlin.jvm",
+                "org.jetbrains.kotlin.jvm.gradle.plugin"
+            ),
+            "https://plugins.gradle.org/m2/org/jetbrains/kotlin/jvm/org.jetbrains.kotlin.jvm.gradle.plugin/maven-metadata.xml"
+        );
     }
 
     #[test]

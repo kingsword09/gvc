@@ -1,3 +1,4 @@
+mod metadata_cache;
 pub mod plugin_portal;
 pub mod repository;
 pub mod version;
