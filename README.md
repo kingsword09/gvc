@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, and add dependencies or plugins with confidence.
+A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, add, and diagnose dependencies or plugins with confidence.
 
 English | [简体中文](README_ZH.md)
 
@@ -13,11 +13,12 @@ English | [简体中文](README_ZH.md)
 - 🚀 **Direct Maven repository queries** - No Gradle runtime needed, pure Rust performance
 - 📦 **Multi-repository support** - Maven Central, Google Maven, custom repositories with smart filtering
 - 🎯 **Intelligent version detection** - Semantic versioning with stability filtering (alpha, beta, RC, dev)
-- 📋 **Four commands**:
+- 📋 **Five commands**:
   - `check` - View available updates without applying
   - `update` - Apply dependency updates
   - `list` - Display all dependencies in Maven coordinate format
   - `add` - Insert dependencies or plugins directly into the catalog with version aliasing
+  - `doctor` - Diagnose Kotlin/Android catalog consistency
 - 🔒 **Version reference support** - Handles `[versions]` table with automatic resolution
 - 🎨 **Beautiful CLI output** - Progress bars, colored output, clear summaries
 - ⚡ **Smart request optimization** - Repository filtering based on group patterns to minimize HTTP requests
@@ -43,12 +44,9 @@ Download pre-built binaries from the [releases page](https://github.com/kingswor
 
 ```bash
 # Linux/macOS
-curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-x86_64-unknown-linux-gnu -o gvc
+curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64 -o gvc
 chmod +x gvc
 sudo mv gvc /usr/local/bin/
-
-# Or use the install script
-curl -sSL https://raw.githubusercontent.com/kingsword09/gvc/main/install.sh | bash
 ```
 
 ### From source
@@ -71,9 +69,12 @@ cargo build --release
 ```bash
 gvc check              # validate project and list available upgrades
 gvc update --no-git    # apply upgrades without creating a Git branch
+gvc check --format json --fail-on-updates  # agent/CI-friendly update gate
+gvc doctor --format json --fail-on-issues  # Kotlin/Android catalog diagnostics
 ```
 
 - Use `--path /path/to/project` if the catalog lives elsewhere.
+- Use `--catalog gradle/custom.versions.toml` to target a specific catalog file inside the project.
 - Pass `--verbose` (or export `GVC_VERBOSE=1`) to inspect HTTP traffic, caching, and other diagnostics.
 
 ## Usage
@@ -83,9 +84,23 @@ gvc update --no-git    # apply upgrades without creating a Git branch
 | Command | Purpose | Key Flags |
 | --- | --- | --- |
 | `gvc check` | Dry-run scan that validates the project and prints available dependency/plugin upgrades. | `--include-unstable` to add alpha/beta/RC versions; `--path` to target another project. |
-| `gvc update` | Applies catalog updates, honoring stability filters and optional Git integration. | `--interactive` for per-change prompts; `--filter "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
+| `gvc update` | Applies or previews catalog updates, honoring stability filters and optional Git integration. | `--dry-run` to preview; `--apply` to be explicit; `--target "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
 | `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
-| `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-p/--plugin` targets plugins; `--no-stable-only` allows pre-releases when resolving `:latest`; `--alias` / `--version-alias` override generated keys. |
+| `gvc doctor` | Checks Kotlin, KSP, Android Gradle Plugin, and Compose catalog consistency without network access. | `--fail-on-issues` exits with code 2 when warnings/errors are found; `--format json` for automation. |
+| `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-P/--plugin` targets plugins; `--no-stable-only` allows pre-releases when resolving `:latest`; `--alias` / `--version-alias` override generated keys. |
+
+Global automation flags:
+
+- `--format text|json` - Emits either human-readable output or a stable JSON object.
+- `--quiet` - Suppresses progress output in text mode.
+- `--no-color` - Disables ANSI color.
+- `--catalog <file>` - Uses an explicit version catalog file under `--path`.
+
+Exit codes:
+
+- `0` - Command completed successfully.
+- `1` - Validation, parsing, network, Git, or write error.
+- `2` - `gvc check --fail-on-updates` found updates, or `gvc doctor --fail-on-issues` found diagnostics.
 
 ### Check for Updates
 
@@ -103,12 +118,19 @@ By default, only stable versions are shown. To include pre-release versions:
 gvc check --include-unstable
 ```
 
+For CI or agents that should fail when upgrades exist:
+
+```bash
+gvc check --format json --fail-on-updates
+```
+
 ### List Dependencies
 
 Display all dependencies in Maven coordinate format (useful for verification):
 
 ```bash
 gvc list
+gvc list --format json
 ```
 
 Output example:
@@ -129,6 +151,26 @@ Summary:
   2 plugins
 ```
 
+### Diagnose Kotlin/Android Catalogs
+
+Run catalog-only diagnostics for Kotlin-heavy Gradle projects:
+
+```bash
+gvc doctor
+gvc doctor --format json
+gvc doctor --fail-on-issues
+```
+
+The doctor currently checks:
+
+- Kotlin Gradle plugin entries use one aligned version.
+- KSP versions use the expected `<kotlin-version>-<ksp-version>` prefix.
+- Kotlin 2.x Compose projects declare `org.jetbrains.kotlin.plugin.compose`.
+- The Kotlin Compose compiler plugin matches the Kotlin Gradle plugin version.
+- `com.android.*` plugins share one Android Gradle Plugin version.
+
+`doctor` is intentionally offline and only inspects the version catalog, so it is safe for CI and agent workflows.
+
 ### Update Dependencies
 
 Apply dependency updates (stable versions only by default):
@@ -141,23 +183,34 @@ gvc update
 
 - `--stable-only` - Only update to stable versions (enabled by default)
 - `--no-stable-only` - Allow updates to unstable versions (alpha, beta, RC)
+- `--dry-run` - Preview updates without writing to the catalog
+- `--apply` - Explicitly apply updates (default behavior)
+- `--target <glob>` - Limit updates to dependencies whose alias matches the glob (e.g. `*okhttp*`)
 - `-i`, `--interactive` - Review each proposed change before applying it
-- `--filter <glob>` - Limit updates to dependencies whose alias matches the glob (e.g. `*okhttp*`)
+- `--filter <glob>` - Backward-compatible alias for `--target`
 - `--no-git` - Skip Git operations (no branch/commit)
 - `--path`, `-p` - Specify project directory
+- `--format json` - Emit the applied update report as JSON
 
 Interactive mode will pause on each candidate upgrade, showing the old/new version and letting you accept, skip, apply all remaining changes, or cancel the run.
 
+Dry-run mode is read-only and does not require a clean Git working tree:
+
+```bash
+gvc update --dry-run
+gvc update --dry-run --target kotlin --format json
+```
+
 #### Targeted Updates
 
-When `--filter` is provided, GVC lists every matching library/version alias/plugin so you can pick a single target. Combine it with `-i/--interactive` to choose the exact version (stable or pre-release) you want to install.
+When `--target` is provided in apply mode, GVC lists every matching library/version alias/plugin so you can pick a single target. Combine it with `-i/--interactive` to choose the exact version (stable or pre-release) you want to install.
 
 ```bash
 # Review and pick a version for dependencies with "okhttp" in their alias
-gvc update --filter "*okhttp*" --interactive
+gvc update --target "*okhttp*" --interactive
 ```
 
-- Skip the version prompt by omitting `--interactive` when the filter matches exactly one entry; GVC selects the newest version that satisfies the stability rules. If multiple entries match, refine the filter or add `--interactive`.
+- Skip the version prompt by omitting `--interactive` when the target pattern matches exactly one entry; GVC selects the newest version that satisfies the stability rules. If multiple entries match, refine the target or add `--interactive`.
 - Include pre-releases with `--no-stable-only` when you want to evaluate beta/RC builds.
 
 **Examples:**
@@ -173,7 +226,7 @@ gvc update --no-stable-only
 gvc update --interactive
 
 # Target a single dependency by alias pattern
-gvc update --filter "*okhttp*"
+gvc update --target "*okhttp*"
 
 # Update without Git integration
 gvc update --no-git
@@ -184,13 +237,13 @@ gvc update --path /path/to/project
 
 #### Selective Updates
 
-When you pass `--filter`, GVC narrows the scope to aliases that match your glob expression (case-insensitive). The CLI will:
+When you pass `--target`, GVC narrows the scope to aliases that match your glob expression (case-insensitive). The CLI will:
 
 1. List every matching version alias, library, or plugin.
 2. Prompt you to pick the exact entry to change.
 3. Fetch available versions from the configured repositories.
 4. In interactive mode (`-i`), let you choose from recent stable and pre-release versions (use `m` to show more, `s` to skip, `q` to cancel).
-5. Without interactive mode, automatically pick the first newer version when exactly one entry matches. If multiple entries match, GVC exits with a message asking for a narrower filter or `--interactive`.
+5. Without interactive mode, automatically pick the first newer version when exactly one entry matches. If multiple entries match, GVC exits with a message asking for a narrower target or `--interactive`.
 
 This makes it easy to bump a single dependency—even to a specific pre-release—without touching the rest of the catalog.
 
@@ -202,17 +255,19 @@ Create new catalog entries directly from Maven or plugin coordinates:
 # Libraries: group:artifact:version (default target)
 gvc add androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
 
-# Plugins: plugin.id:version (-p mirrors npm-style short flags)
-gvc add -p org.jetbrains.kotlin.jvm:1.9.24
+# Plugins: plugin.id:version
+gvc add -P org.jetbrains.kotlin.jvm:1.9.24
 
 # Resolve the newest available version automatically
 gvc add com.squareup.okhttp3:okhttp:latest
-gvc add -p org.jetbrains.kotlin.android:latest --no-stable-only  # allow pre-releases when needed
+gvc add -P org.jetbrains.kotlin.android:latest --no-stable-only  # allow pre-releases when needed
 ```
 
 - GVC auto-generates catalog aliases and version keys (use `--alias` / `--version-alias` to override).
+- `-P` is the plugin short flag; global `-p/--path` is reserved for the project path.
 - Library entries are written as `{ module = "group:artifact", version = { ref = "<alias>" } }`.
 - Plugin entries use `{ id = "plugin.id", version = { ref = "<alias>" } }`.
+- Existing version aliases are not updated implicitly. Pass `--update-version-alias` only when you intentionally want the new entry to move an existing version key.
 - Coordinates are verified upstream before writing; libraries query your configured repositories, plugins query the Gradle Plugin Portal. Use `--no-stable-only` to include pre-release versions when resolving `:latest`.
 - The `--path` flag works exactly as with other commands.
 

@@ -40,10 +40,10 @@ impl<'a> PluginHandler<'a> {
         let mut report = UpdateReport::new();
         let candidates = Self::collect_candidates(doc);
 
-        println!("\n{}", "Checking plugin updates...".cyan());
+        crate::outln!("\n{}", "Checking plugin updates...".cyan());
 
         let pb = ProgressBar::new(candidates.len() as u64);
-        if self.interaction.is_enabled() {
+        if self.interaction.is_enabled() || crate::utils::output::is_quiet() {
             pb.set_draw_target(ProgressDrawTarget::hidden());
         }
         pb.set_style(
@@ -75,9 +75,12 @@ impl<'a> PluginHandler<'a> {
         let mut report = UpdateReport::new();
         let candidates = Self::collect_candidates(doc);
 
-        println!("\n{}", "Checking plugin updates...".cyan());
+        crate::outln!("\n{}", "Checking plugin updates...".cyan());
 
         let pb = ProgressBar::new(candidates.len() as u64);
+        if crate::utils::output::is_quiet() {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("  [{bar:40}] {pos}/{len} {msg}")

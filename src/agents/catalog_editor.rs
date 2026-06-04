@@ -33,6 +33,7 @@ impl CatalogEditor {
         coordinate: &str,
         alias_override: Option<&str>,
         version_alias_override: Option<&str>,
+        allow_version_alias_update: bool,
     ) -> Result<AddResult> {
         let (group, artifact, version) = parse_library_coordinate(coordinate)?;
         let mut doc = self.load_document()?;
@@ -72,7 +73,12 @@ impl CatalogEditor {
                 .as_table_mut()
                 .ok_or_else(|| GvcError::TomlParsing("Failed to access [versions] table".into()))?;
 
-            upsert_version_alias(versions, &version_alias, version.clone())?
+            upsert_version_alias(
+                versions,
+                &version_alias,
+                version.clone(),
+                allow_version_alias_update,
+            )?
         };
 
         let libraries = doc["libraries"]
@@ -90,9 +96,10 @@ impl CatalogEditor {
         libraries.insert(&alias, Item::Value(Value::InlineTable(entry)));
 
         if updated_alias {
-            println!(
+            crate::outln!(
                 "   Updated version alias '{}' with value '{}'",
-                version_alias, version
+                version_alias,
+                version
             );
         }
 
@@ -110,6 +117,7 @@ impl CatalogEditor {
         coordinate: &str,
         alias_override: Option<&str>,
         version_alias_override: Option<&str>,
+        allow_version_alias_update: bool,
     ) -> Result<AddResult> {
         let (plugin_id, version) = parse_plugin_coordinate(coordinate)?;
         let mut doc = self.load_document()?;
@@ -149,7 +157,12 @@ impl CatalogEditor {
                 .as_table_mut()
                 .ok_or_else(|| GvcError::TomlParsing("Failed to access [versions] table".into()))?;
 
-            upsert_version_alias(versions, &version_alias, version.clone())?
+            upsert_version_alias(
+                versions,
+                &version_alias,
+                version.clone(),
+                allow_version_alias_update,
+            )?
         };
 
         let plugins = doc["plugins"]
@@ -167,9 +180,10 @@ impl CatalogEditor {
         plugins.insert(&alias, Item::Value(Value::InlineTable(entry)));
 
         if updated_alias {
-            println!(
+            crate::outln!(
                 "   Updated version alias '{}' with value '{}'",
-                version_alias, version
+                version_alias,
+                version
             );
         }
 
@@ -219,11 +233,23 @@ fn ensure_section(doc: &mut DocumentMut, name: &str) {
     }
 }
 
-fn upsert_version_alias(table: &mut Table, key: &str, version: String) -> Result<bool> {
+fn upsert_version_alias(
+    table: &mut Table,
+    key: &str,
+    version: String,
+    allow_update: bool,
+) -> Result<bool> {
     if let Some(existing) = table.get_mut(key) {
         if let Some(existing_version) = existing.as_str() {
             if existing_version == version {
                 return Ok(false);
+            }
+
+            if !allow_update {
+                return Err(GvcError::ProjectValidation(format!(
+                    "Version alias '{}' already exists with version '{}'. Pass --update-version-alias to update it or choose a different --version-alias.",
+                    key, existing_version
+                )));
             }
 
             *existing = Item::Value(Value::from(version));
@@ -458,6 +484,8 @@ fn version_ref_inline(version_alias: &str) -> InlineTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn library_alias_generation_removes_common_prefix() {
@@ -498,5 +526,67 @@ mod tests {
         let (id, version) = parse_plugin_coordinate("org.jetbrains.kotlin.jvm:1.9.0").unwrap();
         assert_eq!(id, "org.jetbrains.kotlin.jvm");
         assert_eq!(version, "1.9.0");
+    }
+
+    #[test]
+    fn add_library_rejects_version_alias_update_by_default() {
+        let dir = tempdir().unwrap();
+        let catalog = dir.path().join("libs.versions.toml");
+        fs::write(
+            &catalog,
+            r#"
+[versions]
+example = "1.0.0"
+
+[libraries]
+"#,
+        )
+        .unwrap();
+
+        let editor = CatalogEditor::new(&catalog);
+        let err = editor
+            .add_library(
+                "com.example:new-lib:2.0.0",
+                Some("new-lib"),
+                Some("example"),
+                false,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, GvcError::ProjectValidation(_)));
+        let content = fs::read_to_string(&catalog).unwrap();
+        assert!(content.contains(r#"example = "1.0.0""#));
+        assert!(!content.contains("new-lib"));
+    }
+
+    #[test]
+    fn add_library_can_update_version_alias_when_allowed() {
+        let dir = tempdir().unwrap();
+        let catalog = dir.path().join("libs.versions.toml");
+        fs::write(
+            &catalog,
+            r#"
+[versions]
+example = "1.0.0"
+
+[libraries]
+"#,
+        )
+        .unwrap();
+
+        let editor = CatalogEditor::new(&catalog);
+        let result = editor
+            .add_library(
+                "com.example:new-lib:2.0.0",
+                Some("new-lib"),
+                Some("example"),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(result.alias, "new-lib");
+        let content = fs::read_to_string(&catalog).unwrap();
+        assert!(content.contains(r#"example = "2.0.0""#));
+        assert!(content.contains("new-lib"));
     }
 }
