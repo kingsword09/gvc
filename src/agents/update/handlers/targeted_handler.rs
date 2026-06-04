@@ -59,7 +59,7 @@ impl<'a> TargetedHandler<'a> {
             return Ok(UpdateReport::new());
         }
 
-        let selected_index = self.prompt_candidate_selection(&candidates)?;
+        let selected_index = self.select_candidate(&candidates, pattern)?;
         let candidate = candidates.remove(selected_index);
 
         let version_entries = self.fetch_versions_for_candidate(&candidate, stable_only)?;
@@ -130,11 +130,14 @@ impl<'a> TargetedHandler<'a> {
             }
         }
 
+        let version_refs = Self::collect_version_refs(doc);
+
         // Search in plugins
         if let Some(plugins) = doc.get("plugins").and_then(|v| v.as_table()) {
             for (name, item) in plugins.iter() {
                 if matcher.matches(name) {
-                    if let Some(candidate) = self.build_plugin_candidate(name, item) {
+                    if let Some(candidate) = self.build_plugin_candidate(name, item, &version_refs)
+                    {
                         candidates.push(candidate);
                     }
                 }
@@ -159,32 +162,51 @@ impl<'a> TargetedHandler<'a> {
         })
     }
 
-    fn build_plugin_candidate(&self, name: &str, item: &Item) -> Option<TargetCandidate> {
-        if let Some(table) = item.as_table() {
-            let plugin_id = table.get("id").and_then(|v| v.as_str())?;
-            if let Some(current_version) = table.get("version").and_then(|v| v.as_str()) {
-                return Some(TargetCandidate {
-                    name: name.to_string(),
-                    current_version: current_version.to_string(),
-                    kind: TargetKind::Plugin {
-                        plugin_id: plugin_id.to_string(),
-                    },
-                });
-            }
-        } else if let Some(inline_table) = item.as_inline_table() {
-            let plugin_id = inline_table.get("id").and_then(|v| v.as_str())?;
-            if let Some(current_version) = inline_table.get("version").and_then(|v| v.as_str()) {
-                return Some(TargetCandidate {
-                    name: name.to_string(),
-                    current_version: current_version.to_string(),
-                    kind: TargetKind::Plugin {
-                        plugin_id: plugin_id.to_string(),
-                    },
-                });
-            }
+    fn build_plugin_candidate(
+        &self,
+        name: &str,
+        item: &Item,
+        version_refs: &std::collections::HashMap<String, String>,
+    ) -> Option<TargetCandidate> {
+        let details = TomlUtils::extract_plugin_details(name, item)?;
+
+        if let Some(current_version) = details.version {
+            return Some(TargetCandidate {
+                name: name.to_string(),
+                current_version,
+                kind: TargetKind::Plugin {
+                    plugin_id: details.id,
+                    version_ref: None,
+                },
+            });
         }
 
-        None
+        let version_ref = details.version_ref?;
+        let current_version = version_refs.get(&version_ref)?.clone();
+        Some(TargetCandidate {
+            name: name.to_string(),
+            current_version,
+            kind: TargetKind::Plugin {
+                plugin_id: details.id,
+                version_ref: Some(version_ref),
+            },
+        })
+    }
+
+    fn collect_version_refs(doc: &DocumentMut) -> std::collections::HashMap<String, String> {
+        doc.get("versions")
+            .and_then(|v| v.as_table())
+            .map(|versions| {
+                versions
+                    .iter()
+                    .filter_map(|(name, value)| {
+                        value
+                            .as_str()
+                            .map(|version| (name.to_string(), version.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn find_representative_coordinate(
@@ -203,13 +225,21 @@ impl<'a> TargetedHandler<'a> {
         None
     }
 
-    fn prompt_candidate_selection(&self, candidates: &[TargetCandidate]) -> Result<usize> {
+    fn select_candidate(&self, candidates: &[TargetCandidate], pattern: &str) -> Result<usize> {
         if candidates.len() == 1 {
             println!(
                 "{}",
                 format!("Found one match: {}", candidates[0].describe_with_version()).cyan()
             );
             return Ok(0);
+        }
+
+        if !self.interaction.is_enabled() {
+            return Err(crate::error::GvcError::ProjectValidation(format!(
+                "Filter pattern '{}' matched {} dependencies. Refine the pattern or use --interactive to choose one.",
+                pattern,
+                candidates.len()
+            )));
         }
 
         println!(
@@ -256,7 +286,7 @@ impl<'a> TargetedHandler<'a> {
                 let coordinate = Coordinate::new(group, artifact);
                 self.library_client.fetch_available_versions(&coordinate)?
             }
-            TargetKind::Plugin { plugin_id } => {
+            TargetKind::Plugin { plugin_id, .. } => {
                 let coordinate = Coordinate::plugin(plugin_id.as_str());
                 self.plugin_client.fetch_available_versions(&coordinate)?
             }
@@ -291,6 +321,19 @@ impl<'a> TargetedHandler<'a> {
             "\n{}",
             format!("Available versions for {}:", candidate.display_name()).cyan()
         );
+
+        if !context.interaction.is_enabled() {
+            if let Some(entry) = context.entries.iter().find(|entry| {
+                !entry.is_current
+                    && context
+                        .strategy
+                        .is_upgrade(&candidate.current_version, &entry.value)
+            }) {
+                return Ok(entry.value.clone());
+            }
+
+            return Ok(candidate.current_version.clone());
+        }
 
         let mut limit = min(context.entries.len(), 10);
         loop {
@@ -434,22 +477,28 @@ impl<'a> TargetedHandler<'a> {
                     new_version.to_string(),
                 );
             }
-            TargetKind::Plugin { .. } => {
-                let plugins = doc
-                    .get_mut("plugins")
-                    .and_then(|v| v.as_table_mut())
-                    .ok_or_else(|| {
-                        crate::error::GvcError::TomlParsing("Missing [plugins] section".to_string())
+            TargetKind::Plugin { version_ref, .. } => {
+                if let Some(version_ref) = version_ref {
+                    self.apply_version_alias(doc, version_ref, new_version)?;
+                } else {
+                    let plugins = doc
+                        .get_mut("plugins")
+                        .and_then(|v| v.as_table_mut())
+                        .ok_or_else(|| {
+                            crate::error::GvcError::TomlParsing(
+                                "Missing [plugins] section".to_string(),
+                            )
+                        })?;
+
+                    let item = plugins.get_mut(&candidate.name).ok_or_else(|| {
+                        crate::error::GvcError::TomlParsing(format!(
+                            "Plugin '{}' not found in catalog",
+                            candidate.name
+                        ))
                     })?;
 
-                let item = plugins.get_mut(&candidate.name).ok_or_else(|| {
-                    crate::error::GvcError::TomlParsing(format!(
-                        "Plugin '{}' not found in catalog",
-                        candidate.name
-                    ))
-                })?;
-
-                self.apply_plugin_version(item, new_version)?;
+                    self.apply_plugin_version(item, new_version)?;
+                }
                 report.add_plugin_update(
                     candidate.name.clone(),
                     candidate.current_version.clone(),
@@ -525,6 +574,11 @@ impl<'a> TargetedHandler<'a> {
     }
 
     fn apply_plugin_version(&self, item: &mut Item, new_version: &str) -> Result<()> {
+        if item.as_str().is_some() {
+            *item = Item::Value(toml_edit::Value::from(new_version));
+            return Ok(());
+        }
+
         if let Some(table) = item.as_table_mut() {
             table.insert("version", Item::Value(toml_edit::Value::from(new_version)));
             return Ok(());
@@ -557,7 +611,7 @@ impl TargetCandidate {
             TargetKind::Library { group, artifact } => {
                 format!("library '{}' ({}:{})", self.name, group, artifact)
             }
-            TargetKind::Plugin { plugin_id } => {
+            TargetKind::Plugin { plugin_id, .. } => {
                 format!("plugin '{}' ({})", self.name, plugin_id)
             }
         }
@@ -574,9 +628,18 @@ impl TargetCandidate {
 
 #[derive(Clone)]
 enum TargetKind {
-    VersionAlias { group: String, artifact: String },
-    Library { group: String, artifact: String },
-    Plugin { plugin_id: String },
+    VersionAlias {
+        group: String,
+        artifact: String,
+    },
+    Library {
+        group: String,
+        artifact: String,
+    },
+    Plugin {
+        plugin_id: String,
+        version_ref: Option<String>,
+    },
 }
 
 #[derive(Clone)]

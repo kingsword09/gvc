@@ -33,8 +33,12 @@ pub enum Commands {
         filter: Option<String>,
 
         /// Only update to stable versions (no alpha, beta, RC) - enabled by default
-        #[arg(short, long, default_value_t = true)]
+        #[arg(short, long, action = clap::ArgAction::SetTrue, conflicts_with = "no_stable_only")]
         stable_only: bool,
+
+        /// Include unstable versions (alpha, beta, RC)
+        #[arg(long = "no-stable-only", action = clap::ArgAction::SetTrue)]
+        no_stable_only: bool,
 
         /// Skip Git operations (don't create branch or commit)
         #[arg(long)]
@@ -73,8 +77,24 @@ pub enum Commands {
         #[arg(long = "version-alias")]
         version_alias: Option<String>,
 
-        /// Prefer stable versions when resolving `:latest` coordinates (use `--no-stable-only` to include pre-releases)
+        /// Include unstable versions when resolving `:latest` coordinates
         #[arg(long = "no-stable-only", action = clap::ArgAction::SetFalse, default_value_t = true)]
         stable_only: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn update_accepts_no_stable_only_flag() {
+        let cli = Cli::parse_from(["gvc", "update", "--no-stable-only"]);
+        let Commands::Update { no_stable_only, .. } = cli.command else {
+            panic!("expected update command");
+        };
+
+        assert!(no_stable_only);
+    }
 }

@@ -10,6 +10,14 @@ pub struct LibraryDetails {
     pub version_ref: Option<String>,
 }
 
+/// Canonical representation of a plugin entry inside the version catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginDetails {
+    pub id: String,
+    pub version: Option<String>,
+    pub version_ref: Option<String>,
+}
+
 /// Helpers for inspecting and updating Gradle version catalog TOML structures.
 pub struct TomlUtils;
 
@@ -149,6 +157,39 @@ impl TomlUtils {
             version_ref,
         })
     }
+
+    /// Extracts a normalized `PluginDetails` from a plugin item.
+    pub fn extract_plugin_details(alias: &str, item: &Item) -> Option<PluginDetails> {
+        if let Some(version) = item.as_str() {
+            return Some(PluginDetails {
+                id: alias.to_string(),
+                version: Some(version.to_string()),
+                version_ref: None,
+            });
+        }
+
+        let id = if let Some(inline_table) = item.as_inline_table() {
+            inline_table
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(alias)
+                .to_string()
+        } else if let Some(table) = item.as_table() {
+            table
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(alias)
+                .to_string()
+        } else {
+            return None;
+        };
+
+        Some(PluginDetails {
+            id,
+            version: Self::extract_version(item),
+            version_ref: Self::extract_version_ref(item),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -219,5 +260,30 @@ mod tests {
         assert_eq!(details.artifact, "artifact");
         assert!(details.version.is_none());
         assert_eq!(details.version_ref.as_deref(), Some("core"));
+    }
+
+    #[test]
+    fn extracts_plugin_details_from_inline_definition() {
+        let doc: DocumentMut = r#"plugin = { id = "org.jetbrains.kotlin.jvm", version = "1.9.0" }"#
+            .parse()
+            .unwrap();
+        let item = doc.get("plugin").unwrap();
+        let details = TomlUtils::extract_plugin_details("plugin", item).unwrap();
+        assert_eq!(details.id, "org.jetbrains.kotlin.jvm");
+        assert_eq!(details.version.as_deref(), Some("1.9.0"));
+        assert!(details.version_ref.is_none());
+    }
+
+    #[test]
+    fn extracts_plugin_details_with_version_reference() {
+        let doc: DocumentMut =
+            r#"plugin = { id = "org.jetbrains.kotlin.jvm", version = { ref = "kotlin" } }"#
+                .parse()
+                .unwrap();
+        let item = doc.get("plugin").unwrap();
+        let details = TomlUtils::extract_plugin_details("plugin", item).unwrap();
+        assert_eq!(details.id, "org.jetbrains.kotlin.jvm");
+        assert!(details.version.is_none());
+        assert_eq!(details.version_ref.as_deref(), Some("kotlin"));
     }
 }

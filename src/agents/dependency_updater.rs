@@ -93,6 +93,19 @@ impl DependencyUpdater {
             }
         }
 
+        // Check [plugins] section
+        if doc.get("plugins").and_then(|v| v.as_table()).is_some() {
+            let mut handler = PluginHandler::new(
+                self.plugin_client.as_ref(),
+                Arc::clone(&self.version_strategy),
+                &mut interaction,
+            );
+            let plugin_report = handler.check(&doc, stable_only)?;
+            for (k, v) in plugin_report.plugin_updates {
+                report.add_plugin_update(k, v.0, v.1);
+            }
+        }
+
         Ok(report)
     }
 
@@ -150,13 +163,13 @@ impl DependencyUpdater {
         }
 
         // Update [plugins] section
-        if let Some(plugins) = doc.get_mut("plugins").and_then(|v| v.as_table_mut()) {
+        if doc.get("plugins").and_then(|v| v.as_table()).is_some() {
             let mut handler = PluginHandler::new(
                 self.plugin_client.as_ref(),
                 Arc::clone(&self.version_strategy),
                 &mut interaction,
             );
-            let plugin_report = handler.update(plugins, stable_only)?;
+            let plugin_report = handler.update(&mut doc, stable_only)?;
             // Merge reports
             for (k, v) in plugin_report.plugin_updates {
                 report.add_plugin_update(k, v.0, v.1);

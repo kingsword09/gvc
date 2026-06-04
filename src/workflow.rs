@@ -511,6 +511,7 @@ pub fn execute_list<P: AsRef<Path>>(project_path: P) -> Result<()> {
 
 fn print_dependencies(doc: &toml_edit::DocumentMut) {
     use crate::maven::parse_maven_coordinate;
+    use crate::utils::toml::TomlUtils;
     use std::collections::HashMap;
 
     println!("\n{}", "📦 Dependencies:".cyan().bold());
@@ -629,37 +630,22 @@ fn print_dependencies(doc: &toml_edit::DocumentMut) {
             plugin_list.sort_by_key(|(k, _)| *k);
 
             for (name, value) in plugin_list {
-                let mut plugin_id = String::new();
-                let mut version_str = String::new();
+                let Some(details) = TomlUtils::extract_plugin_details(name, value) else {
+                    println!("  {} {}", name.yellow(), "(plugin unknown)".dimmed());
+                    continue;
+                };
 
-                if let Some(str_value) = value.as_str() {
-                    plugin_id = name.to_string();
-                    version_str = str_value.to_string();
-                } else if let Some(table) = value.as_table() {
-                    if let Some(id) = table.get("id").and_then(|v| v.as_str()) {
-                        plugin_id = id.to_string();
-                    } else {
-                        plugin_id = name.to_string();
-                    }
+                let plugin_id = details.id;
+                let version_str = details.version.or_else(|| {
+                    details.version_ref.map(|ref_name| {
+                        version_refs
+                            .get(&ref_name)
+                            .cloned()
+                            .unwrap_or_else(|| format!("${{{}}}", ref_name))
+                    })
+                });
 
-                    if let Some(version) = table.get("version") {
-                        if let Some(v) = version.as_str() {
-                            version_str = v.to_string();
-                        } else if let Some(version_ref) = version.as_table() {
-                            if let Some(ref_name) = version_ref.get("ref").and_then(|v| v.as_str())
-                            {
-                                // Resolve version reference
-                                if let Some(resolved) = version_refs.get(ref_name) {
-                                    version_str = resolved.clone();
-                                } else {
-                                    version_str = format!("${{{}}}", ref_name);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !version_str.is_empty() {
+                if let Some(version_str) = version_str {
                     println!("  {}", format!("{}:{}", plugin_id, version_str).magenta());
                 } else {
                     println!("  {} {}", plugin_id.magenta(), "(version unknown)".dimmed());

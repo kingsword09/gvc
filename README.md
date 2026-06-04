@@ -157,7 +157,7 @@ When `--filter` is provided, GVC lists every matching library/version alias/plug
 gvc update --filter "*okhttp*" --interactive
 ```
 
-- Skip the prompt by omitting `--interactive`; GVC selects the newest version that satisfies the stability rules.
+- Skip the version prompt by omitting `--interactive` when the filter matches exactly one entry; GVC selects the newest version that satisfies the stability rules. If multiple entries match, refine the filter or add `--interactive`.
 - Include pre-releases with `--no-stable-only` when you want to evaluate beta/RC builds.
 
 **Examples:**
@@ -190,7 +190,7 @@ When you pass `--filter`, GVC narrows the scope to aliases that match your glob 
 2. Prompt you to pick the exact entry to change.
 3. Fetch available versions from the configured repositories.
 4. In interactive mode (`-i`), let you choose from recent stable and pre-release versions (use `m` to show more, `s` to skip, `q` to cancel).
-5. Without interactive mode, automatically pick the first newer version that respects the `--stable-only` flag, so you can script targeted upgrades.
+5. Without interactive mode, automatically pick the first newer version when exactly one entry matches. If multiple entries match, GVC exits with a message asking for a narrower filter or `--interactive`.
 
 This makes it easy to bump a single dependency—even to a specific pre-release—without touching the rest of the catalog.
 
