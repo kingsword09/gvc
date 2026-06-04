@@ -2,6 +2,7 @@ use crate::error::{GvcError, Result};
 use crate::maven::metadata_cache::MetadataCache;
 use crate::maven::version::{Version, VersionComparator};
 use crate::repository::{Coordinate, RepositoryClient};
+use crate::utils::verbose;
 use quick_xml::de::from_str;
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -48,12 +49,10 @@ impl PluginPortalClient {
         let group = plugin_id;
         let artifact = format!("{}.gradle.plugin", plugin_id);
 
-        if std::env::var("GVC_VERBOSE").is_ok() {
-            eprintln!(
-                "[VERBOSE] Fetching plugin: {} ({}:{})",
-                plugin_id, group, artifact
-            );
-        }
+        verbose::log(format!(
+            "Fetching plugin: {} ({}:{})",
+            plugin_id, group, artifact
+        ));
 
         let versions = self.fetch_all_plugin_versions(group, &artifact)?;
 
@@ -62,13 +61,11 @@ impl PluginPortalClient {
                 return Ok(None);
             }
 
-            if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!(
-                    "[VERBOSE] Found {} versions for plugin {}",
-                    versions.len(),
-                    plugin_id
-                );
-            }
+            verbose::log(format!(
+                "Found {} versions for plugin {}",
+                versions.len(),
+                plugin_id
+            ));
 
             Ok(VersionComparator::get_latest(&versions, stable_only))
         } else {
@@ -104,30 +101,22 @@ impl PluginPortalClient {
         let metadata_url = Self::metadata_url(group, artifact);
 
         if let Some(versions) = self.metadata_cache.get(&metadata_url)? {
-            if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!("[VERBOSE] Cache hit: {}", metadata_url);
-            }
+            verbose::log(format!("Cache hit: {}", metadata_url));
             return Ok(Some(versions));
         }
 
-        if std::env::var("GVC_VERBOSE").is_ok() {
-            eprintln!("[VERBOSE] Fetching: {}", metadata_url);
-        }
+        verbose::log(format!("Fetching: {}", metadata_url));
 
         let response = match self.client.get(&metadata_url).send() {
             Ok(resp) => resp,
             Err(e) => {
-                if std::env::var("GVC_VERBOSE").is_ok() {
-                    eprintln!("[VERBOSE] Request failed: {}", e);
-                }
+                verbose::log(format!("Request failed: {}", e));
                 return Ok(None);
             }
         };
 
         if !response.status().is_success() {
-            if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!("[VERBOSE] HTTP {}: {}", response.status(), metadata_url);
-            }
+            verbose::log(format!("HTTP {}: {}", response.status(), metadata_url));
             return Ok(None);
         }
 
@@ -222,6 +211,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "hits the live Gradle Plugin Portal; run manually when validating network behavior"]
     fn test_fetch_kotlin_plugin_version() {
         let client = PluginPortalClient::new().unwrap();
         let version = client.fetch_latest_plugin_version("org.jetbrains.kotlin.jvm", true);

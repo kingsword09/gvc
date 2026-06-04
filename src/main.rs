@@ -11,15 +11,11 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use colored::Colorize;
 use std::process;
+use utils::verbose;
 
 fn main() {
     let cli = Cli::parse();
-
-    if cli.verbose {
-        unsafe {
-            std::env::set_var("GVC_VERBOSE", "1");
-        }
-    }
+    verbose::init(cli.verbose);
 
     let result = match cli.command {
         Commands::Update {
