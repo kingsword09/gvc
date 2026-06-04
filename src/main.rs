@@ -25,9 +25,10 @@ fn main() {
         Commands::Update {
             interactive,
             filter,
-            stable_only,
+            stable_only: _,
+            no_stable_only,
             no_git,
-        } => workflow::execute_update(&cli.path, interactive, filter, stable_only, no_git),
+        } => workflow::execute_update(&cli.path, interactive, filter, !no_stable_only, no_git),
         Commands::Check { include_unstable } => {
             workflow::execute_check(&cli.path, !include_unstable)
         }
