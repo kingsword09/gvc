@@ -88,8 +88,8 @@ for contributors who want to understand or extend the existing automation.
 
 ## Control Flow Notes
 
-- `GVC_VERBOSE=1` (set via `--verbose`) enables extra logging inside network
-  clients and dependency resolution routines.
+- `--verbose` or `GVC_VERBOSE=1` enables extra logging inside network clients
+  and dependency resolution routines.
 - `UpdateReport::is_empty` allows `workflow::execute_update` to skip Git work
   when no upgrades are produced.
 - Interaction helpers inside `DependencyUpdater` can be reused to embed custom

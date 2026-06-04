@@ -3,6 +3,7 @@ use crate::gradle::Repository as GradleRepository;
 use crate::maven::metadata_cache::MetadataCache;
 use crate::maven::version::{Version, VersionComparator};
 use crate::repository::{Coordinate, RepositoryClient};
+use crate::utils::verbose;
 use quick_xml::de::from_str;
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -130,30 +131,22 @@ impl MavenRepository {
         let metadata_url = Self::metadata_url(repo_url, group, artifact);
 
         if let Some(versions) = self.metadata_cache.get(&metadata_url)? {
-            if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!("[VERBOSE] Cache hit: {}", metadata_url);
-            }
+            verbose::log(format!("Cache hit: {}", metadata_url));
             return Ok(Some(versions));
         }
 
-        if std::env::var("GVC_VERBOSE").is_ok() {
-            eprintln!("[VERBOSE] Fetching: {}", metadata_url);
-        }
+        verbose::log(format!("Fetching: {}", metadata_url));
 
         let response = match self.client.get(&metadata_url).send() {
             Ok(resp) => resp,
             Err(e) => {
-                if std::env::var("GVC_VERBOSE").is_ok() {
-                    eprintln!("[VERBOSE] Request failed: {}", e);
-                }
+                verbose::log(format!("Request failed: {}", e));
                 return Ok(None);
             }
         };
 
         if !response.status().is_success() {
-            if std::env::var("GVC_VERBOSE").is_ok() {
-                eprintln!("[VERBOSE] HTTP {}: {}", response.status(), metadata_url);
-            }
+            verbose::log(format!("HTTP {}: {}", response.status(), metadata_url));
             return Ok(None);
         }
 
