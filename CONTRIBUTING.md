@@ -191,7 +191,8 @@ make prepare-release VERSION=0.3.0
 
 The script updates `Cargo.toml`, refreshes the `gvc` entry in `Cargo.lock`,
 updates GitHub Releases download URLs in both READMEs, creates or dates the
-matching `CHANGELOG.md` section, runs the standard Rust checks, and verifies the
+matching `CHANGELOG.md` section, generates release notes from commit subjects
+since the previous `v*` tag, runs the standard Rust checks, and verifies the
 crate package contains the expected source, README, license, and skill files.
 
 If you need a quick metadata-only pass while drafting release notes, skip the
