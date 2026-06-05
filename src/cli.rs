@@ -84,8 +84,26 @@ pub enum Commands {
         fail_on_updates: bool,
     },
 
+    /// Show outdated catalog entries in a package-manager style table
+    Outdated {
+        /// Include unstable versions (alpha, beta, RC)
+        #[arg(long)]
+        include_unstable: bool,
+
+        /// Exit with code 2 when updates are available
+        #[arg(long)]
+        fail_on_updates: bool,
+    },
+
     /// List all dependencies in the version catalog
     List,
+
+    /// Audit version catalog quality and maintainability
+    Audit {
+        /// Exit with code 2 when warnings or errors are found
+        #[arg(long)]
+        fail_on_issues: bool,
+    },
 
     /// Diagnose Kotlin/Android version catalog consistency
     Doctor {
@@ -204,6 +222,31 @@ mod tests {
         };
 
         assert!(fail_on_updates);
+    }
+
+    #[test]
+    fn outdated_accepts_agent_flags() {
+        let cli = Cli::parse_from(["gvc", "outdated", "--include-unstable", "--fail-on-updates"]);
+        let Commands::Outdated {
+            include_unstable,
+            fail_on_updates,
+        } = cli.command
+        else {
+            panic!("expected outdated command");
+        };
+
+        assert!(include_unstable);
+        assert!(fail_on_updates);
+    }
+
+    #[test]
+    fn audit_accepts_fail_on_issues_flag() {
+        let cli = Cli::parse_from(["gvc", "audit", "--fail-on-issues"]);
+        let Commands::Audit { fail_on_issues } = cli.command else {
+            panic!("expected audit command");
+        };
+
+        assert!(fail_on_issues);
     }
 
     #[test]

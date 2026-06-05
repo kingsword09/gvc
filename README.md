@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, add, and diagnose dependencies or plugins with confidence.
+A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, add, audit, and diagnose dependencies or plugins with confidence.
 
 English | [简体中文](README_ZH.md)
 
@@ -13,10 +13,12 @@ English | [简体中文](README_ZH.md)
 - 🚀 **Direct Maven repository queries** - No Gradle runtime needed, pure Rust performance
 - 📦 **Multi-repository support** - Maven Central, Google Maven, custom repositories with smart filtering
 - 🎯 **Intelligent version detection** - Semantic versioning with stability filtering (alpha, beta, RC, dev)
-- 📋 **Five commands**:
+- 📋 **Seven commands**:
   - `check` - View available updates without applying
+  - `outdated` - Show outdated entries in a package-manager style table
   - `update` - Apply dependency updates
   - `list` - Display all dependencies in Maven coordinate format
+  - `audit` - Find catalog quality issues such as duplicate coordinates or missing version refs
   - `add` - Insert dependencies or plugins directly into the catalog with version aliasing
   - `doctor` - Diagnose Kotlin/Android catalog consistency
 - 🔒 **Version reference support** - Handles `[versions]` table with automatic resolution
@@ -68,6 +70,8 @@ cargo build --release
 
 ```bash
 gvc check              # validate project and list available upgrades
+gvc outdated           # show outdated catalog entries in a table
+gvc audit              # inspect catalog quality without network access
 gvc update --no-git    # apply upgrades without creating a Git branch
 gvc check --format json --fail-on-updates  # agent/CI-friendly update gate
 gvc doctor --format json --fail-on-issues  # Kotlin/Android catalog diagnostics
@@ -84,8 +88,10 @@ gvc doctor --format json --fail-on-issues  # Kotlin/Android catalog diagnostics
 | Command | Purpose | Key Flags |
 | --- | --- | --- |
 | `gvc check` | Dry-run scan that validates the project and prints available dependency/plugin upgrades. | `--include-unstable` to add alpha/beta/RC versions; `--path` to target another project. |
+| `gvc outdated` | Prints outdated version aliases, libraries, and plugins in a package-manager style table. | `--include-unstable` to include pre-releases; `--fail-on-updates` exits with code 2 for automation. |
 | `gvc update` | Applies or previews catalog updates, honoring stability filters and optional Git integration. | `--dry-run` to preview; `--apply` to be explicit; `--target "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
 | `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
+| `gvc audit` | Checks catalog maintainability without network access. | `--fail-on-issues` exits with code 2 when warnings/errors are found; `--format json` for automation. |
 | `gvc doctor` | Checks Kotlin, KSP, Android Gradle Plugin, and Compose catalog consistency without network access. | `--fail-on-issues` exits with code 2 when warnings/errors are found; `--format json` for automation. |
 | `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-P/--plugin` targets plugins; `--no-stable-only` allows pre-releases when resolving `:latest`; `--alias` / `--version-alias` override generated keys. |
 
@@ -100,7 +106,7 @@ Exit codes:
 
 - `0` - Command completed successfully.
 - `1` - Validation, parsing, network, Git, or write error.
-- `2` - `gvc check --fail-on-updates` found updates, or `gvc doctor --fail-on-issues` found diagnostics.
+- `2` - `gvc check/outdated --fail-on-updates` found updates, or `gvc audit/doctor --fail-on-issues` found diagnostics.
 
 ### Check for Updates
 
@@ -123,6 +129,36 @@ For CI or agents that should fail when upgrades exist:
 ```bash
 gvc check --format json --fail-on-updates
 ```
+
+### Show Outdated Entries
+
+Use `outdated` when you want a compact package-manager style view of what can move:
+
+```bash
+gvc outdated
+gvc outdated --include-unstable
+gvc outdated --format json --fail-on-updates
+```
+
+`outdated` uses the same resolver as `check`, so it respects the Gradle repositories configured for the project and the same stable-version filtering rules.
+
+### Audit Catalog Quality
+
+Run an offline maintainability audit for the version catalog:
+
+```bash
+gvc audit
+gvc audit --format json
+gvc audit --fail-on-issues
+```
+
+The audit currently checks:
+
+- `version.ref` values that point to missing `[versions]` aliases.
+- Multiple aliases pointing to the same library or plugin coordinate.
+- Inline versions that could be moved into `[versions]`.
+- `[versions]` aliases not referenced by catalog libraries or plugins.
+- Multiple `[versions]` aliases with the same value.
 
 ### List Dependencies
 

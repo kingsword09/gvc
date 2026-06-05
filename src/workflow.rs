@@ -2,8 +2,8 @@ mod add_resolver;
 mod presenter;
 
 use crate::agents::{
-    AddTargetKind, CatalogEditor, DependencyUpdater, KotlinDoctor, ProjectScannerAgent,
-    VersionControlAgent,
+    AddTargetKind, CatalogAuditor, CatalogEditor, DependencyUpdater, KotlinDoctor,
+    ProjectScannerAgent, VersionControlAgent,
 };
 use crate::cli::OutputFormat;
 use crate::error::{GvcError, Result};
@@ -12,9 +12,9 @@ use crate::utils::path_validator::PathValidator;
 use add_resolver::resolve_add_coordinate;
 use colored::Colorize;
 use presenter::{
-    add_target_json, dependencies_json, doctor_json, print_add_result, print_available_updates,
-    print_dependencies, print_doctor_report, print_json, print_repositories, print_update_report,
-    updates_json,
+    add_target_json, dependencies_json, doctor_json, findings_json, print_add_result,
+    print_audit_report, print_available_updates, print_dependencies, print_doctor_report,
+    print_json, print_outdated_report, print_repositories, print_update_report, updates_json,
 };
 use regex::Regex;
 use serde_json::json;
@@ -453,6 +453,33 @@ fn compile_glob(pattern: &str) -> Result<Regex> {
     })
 }
 
+fn collect_available_updates(
+    project_path: &Path,
+    options: &RunOptions<'_>,
+    stable_only: bool,
+) -> Result<(
+    crate::agents::project_scanner::ProjectInfo,
+    crate::agents::UpdateReport,
+)> {
+    crate::outln!("\n{}", "1. Validating project structure...".yellow());
+    let project_info = validate_project(project_path, options)?;
+    crate::outln!("{}", "✓ Project structure is valid".green());
+
+    crate::outln!(
+        "\n{}",
+        "2. Reading Gradle repository configuration...".yellow()
+    );
+    let gradle_parser = GradleConfigParser::new(project_path);
+    let gradle_config = gradle_parser.parse()?;
+    print_repositories(&gradle_config.repositories);
+
+    crate::outln!("\n{}", "3. Checking for available updates...".yellow());
+    let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
+    let report = updater.check_for_updates(&project_info.toml_path, stable_only)?;
+
+    Ok((project_info, report))
+}
+
 /// Execute the check workflow (dry-run)
 pub fn execute_check<P: AsRef<Path>>(
     project_path: P,
@@ -472,21 +499,7 @@ pub fn execute_check<P: AsRef<Path>>(
         .bold()
     );
 
-    crate::outln!("\n{}", "1. Validating project structure...".yellow());
-    let project_info = validate_project(&project_path, &options)?;
-    crate::outln!("{}", "✓ Project structure is valid".green());
-
-    crate::outln!(
-        "\n{}",
-        "2. Reading Gradle repository configuration...".yellow()
-    );
-    let gradle_parser = GradleConfigParser::new(&project_path);
-    let gradle_config = gradle_parser.parse()?;
-    print_repositories(&gradle_config.repositories);
-
-    crate::outln!("\n{}", "3. Checking for available updates...".yellow());
-    let updater = DependencyUpdater::with_repositories(gradle_config.repositories)?;
-    let report = updater.check_for_updates(&project_info.toml_path, stable_only)?;
+    let (project_info, report) = collect_available_updates(&project_path, &options, stable_only)?;
 
     crate::outln!("{}", "✓ Check completed".green());
     print_available_updates(&report, stable_only);
@@ -500,6 +513,49 @@ pub fn execute_check<P: AsRef<Path>>(
             "fail_on_updates": fail_on_updates,
             "updates": updates_json(&report),
             "apply_command": if stable_only { "gvc update" } else { "gvc update --no-stable-only" },
+        }))?;
+    }
+
+    if fail_on_updates && !report.is_empty() {
+        Ok(WorkflowStatus::UpdatesAvailable)
+    } else {
+        Ok(WorkflowStatus::Success)
+    }
+}
+
+/// Execute the outdated workflow - package-manager style update view.
+pub fn execute_outdated<P: AsRef<Path>>(
+    project_path: P,
+    options: RunOptions<'_>,
+    stable_only: bool,
+    fail_on_updates: bool,
+) -> Result<WorkflowStatus> {
+    let project_path = PathValidator::validate_project_path(project_path)?;
+    let version_channel = if stable_only { "stable" } else { "all" };
+    crate::outln!(
+        "{}",
+        format!(
+            "Checking outdated catalog entries ({} versions)...",
+            version_channel
+        )
+        .cyan()
+        .bold()
+    );
+
+    let (project_info, report) = collect_available_updates(&project_path, &options, stable_only)?;
+
+    crate::outln!("{}", "✓ Outdated check completed".green());
+    print_outdated_report(&report, stable_only);
+
+    if options.is_json() {
+        print_json(&json!({
+            "status": if report.is_empty() { "up_to_date" } else { "updates_available" },
+            "command": "outdated",
+            "catalog": project_info.toml_path.display().to_string(),
+            "stable_only": stable_only,
+            "fail_on_updates": fail_on_updates,
+            "outdated": updates_json(&report),
+            "update_command": if stable_only { "gvc update" } else { "gvc update --no-stable-only" },
         }))?;
     }
 
@@ -542,6 +598,44 @@ pub fn execute_list<P: AsRef<Path>>(
     }
 
     Ok(WorkflowStatus::Success)
+}
+
+/// Execute the catalog audit workflow.
+pub fn execute_audit<P: AsRef<Path>>(
+    project_path: P,
+    options: RunOptions<'_>,
+    fail_on_issues: bool,
+) -> Result<WorkflowStatus> {
+    let project_path = PathValidator::validate_project_path(project_path)?;
+    crate::outln!("{}", "Auditing Gradle version catalog...".cyan().bold());
+
+    crate::outln!("\n{}", "1. Validating project structure...".yellow());
+    let project_info = validate_project(&project_path, &options)?;
+    crate::outln!("{}", "✓ Project structure is valid".green());
+
+    crate::outln!("\n{}", "2. Reading version catalog...".yellow());
+    let doc = load_catalog_document(&project_info.toml_path)?;
+    crate::outln!("{}", "✓ Catalog loaded".green());
+
+    crate::outln!("\n{}", "3. Checking catalog quality...".yellow());
+    let report = CatalogAuditor::analyze(&doc);
+    print_audit_report(&report);
+
+    if options.is_json() {
+        print_json(&json!({
+            "status": if report.has_issues() { "issues_found" } else { "ok" },
+            "command": "audit",
+            "catalog": project_info.toml_path.display().to_string(),
+            "fail_on_issues": fail_on_issues,
+            "audit": findings_json(&report)?,
+        }))?;
+    }
+
+    if fail_on_issues && report.has_issues() {
+        Ok(WorkflowStatus::IssuesFound)
+    } else {
+        Ok(WorkflowStatus::Success)
+    }
 }
 
 /// Execute the Kotlin/Android catalog diagnostic workflow.
@@ -589,6 +683,7 @@ pub fn execute_doctor<P: AsRef<Path>>(
 mod tests {
     use super::*;
     use crate::agents::UpdateReport;
+    use std::fs;
 
     #[test]
     fn filter_update_report_matches_alias_case_insensitively() {
@@ -621,5 +716,34 @@ mod tests {
     fn alias_matcher_rejects_empty_pattern() {
         let err = AliasMatcher::new("   ").unwrap_err();
         assert!(matches!(err, GvcError::ProjectValidation(_)));
+    }
+
+    #[test]
+    fn execute_audit_returns_issues_found_when_fail_on_issues() {
+        crate::utils::output::init(true);
+        let project = tempfile::tempdir().unwrap();
+        fs::write(project.path().join("gradlew"), "").unwrap();
+        fs::create_dir(project.path().join("gradle")).unwrap();
+        fs::write(
+            project.path().join("gradle/libs.versions.toml"),
+            r#"
+[libraries]
+core = { module = "androidx.core:core-ktx", version = "1.12.0" }
+coreAgain = { group = "androidx.core", name = "core-ktx", version = "1.12.0" }
+"#,
+        )
+        .unwrap();
+
+        let status = execute_audit(
+            project.path(),
+            RunOptions {
+                catalog_path: None,
+                output_format: OutputFormat::Text,
+            },
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(status, WorkflowStatus::IssuesFound);
     }
 }
