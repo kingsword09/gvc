@@ -47,8 +47,8 @@ Download pre-built binaries from the [releases page](https://github.com/kingswor
 
 ```bash
 # Linux/macOS
-curl -LO https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64
-curl -LO https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64.sha256
+curl -LO https://github.com/kingsword09/gvc/releases/download/v0.2.0/gvc-linux-x86_64
+curl -LO https://github.com/kingsword09/gvc/releases/download/v0.2.0/gvc-linux-x86_64.sha256
 shasum -a 256 -c gvc-linux-x86_64.sha256
 chmod +x gvc-linux-x86_64
 sudo mv gvc-linux-x86_64 /usr/local/bin/gvc

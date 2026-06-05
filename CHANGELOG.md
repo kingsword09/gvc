@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-05
+
+### Added
+- Added catalog inspection commands: `outdated`, `why`, `audit`, and `doctor`.
+- Added agent/CI-friendly JSON output, quiet mode, no-color mode, explicit
+  automation exit codes, and fail-on-update/fail-on-issue gates.
+- Added support for custom catalog file selection via `--catalog`.
+- Added in-process Maven metadata caching to reduce repeated repository
+  requests during update checks.
+
+### Changed
+- Made `--path` a global option so it works before or after subcommands.
+- Switched HTTP TLS to rustls to make `cargo install gvc` less dependent on
+  system OpenSSL/native-tls setup.
+- Trimmed the crates.io package contents to source, Cargo metadata, license,
+  and README files.
+- Improved release publishing by adding SHA-256 checksum assets and skipping
+  crates.io publishing when the version already exists.
+- Refactored update workflow internals for clearer command orchestration and
+  more reliable targeted updates.
+
+### Fixed
+- Improved plugin update checks and `--no-stable-only` handling.
+
 ## [0.1.1] - 2025-10-28
 
 ### Added
@@ -67,5 +91,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contributing guidelines
 - Apache-2.0 license
 
+[0.2.0]: https://github.com/kingsword09/gvc/releases/tag/v0.2.0
 [0.1.1]: https://github.com/kingsword09/gvc/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kingsword09/gvc/releases/tag/v0.1.0
