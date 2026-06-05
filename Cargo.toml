@@ -1,6 +1,6 @@
 [package]
 name = "gvc"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Kingsword kingsword09 <kingsword09@gmail.com>"]
