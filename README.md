@@ -69,6 +69,22 @@ cargo build --release
 # Binary will be in target/release/gvc
 ```
 
+### Agent skill (optional)
+
+This repository includes a `gvc` agent skill that can be installed with the Vercel `skills` CLI:
+
+```bash
+npx skills add kingsword09/gvc --skill gvc -g -y
+```
+
+From a local checkout:
+
+```bash
+npx skills add . --skill gvc -g -y
+```
+
+The skill teaches agents how to use `gvc`; install the CLI binary separately with `cargo install gvc` or `cargo install --path .`.
+
 ## Quick Start
 
 ```bash

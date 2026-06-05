@@ -1,0 +1,4 @@
+interface:
+  display_name: "GVC"
+  short_description: "Gradle version catalog agent workflows"
+  default_prompt: "Use $gvc to audit and update this Gradle version catalog safely."
