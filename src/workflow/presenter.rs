@@ -1,4 +1,7 @@
-use crate::agents::{AddResult, AddTargetKind, DoctorReport, DoctorSeverity, UpdateReport};
+use crate::agents::{
+    AddResult, AddTargetKind, DoctorReport, DoctorSeverity, UpdateReport, WhyEntryKind,
+    WhyMatchKind, WhyReport, WhyVersionSource,
+};
 use crate::error::{GvcError, Result};
 use crate::gradle::Repository;
 use crate::maven::version::Version;
@@ -39,9 +42,14 @@ pub(super) fn dependencies_json(doc: &DocumentMut) -> Value {
     })
 }
 
+pub(super) fn why_json(report: &WhyReport) -> Result<Value> {
+    serde_json::to_value(report)
+        .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize why report: {e}")))
+}
+
 pub(super) fn findings_json(report: &DoctorReport) -> Result<Value> {
     let findings = serde_json::to_value(&report.findings)
-        .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize doctor findings: {e}")))?;
+        .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize findings: {e}")))?;
 
     Ok(json!({
         "summary": {
@@ -286,6 +294,101 @@ pub(super) fn print_dependencies(doc: &DocumentMut) {
     print_libraries(doc, &version_refs);
     print_plugins(doc, &version_refs);
     print_summary(doc);
+}
+
+pub(super) fn print_why_report(report: &WhyReport) {
+    crate::outln!("\n{}", "Catalog Explanation:".cyan().bold());
+    crate::outln!(
+        "  Query: {} ({})",
+        report.query.white().bold(),
+        match_kind_label(report.matched_by).dimmed()
+    );
+
+    for entry in &report.entries {
+        crate::outln!(
+            "\n{} {}",
+            entry.kind.as_str().yellow().bold(),
+            entry.alias.white().bold()
+        );
+        crate::outln!(
+            "  Coordinate: {}",
+            coordinate_display(entry.kind, &entry.coordinate)
+        );
+
+        match entry.version.source {
+            WhyVersionSource::Inline => {
+                crate::outln!(
+                    "  Version: {} {}",
+                    entry
+                        .version
+                        .resolved
+                        .as_deref()
+                        .unwrap_or("(unknown)")
+                        .green(),
+                    "(inline)".dimmed()
+                );
+            }
+            WhyVersionSource::VersionRef => {
+                crate::outln!(
+                    "  Version: {} {}",
+                    entry
+                        .version
+                        .resolved
+                        .as_deref()
+                        .unwrap_or("(unknown)")
+                        .green(),
+                    format!(
+                        "(from version.ref '{}')",
+                        entry.version.version_ref.as_deref().unwrap_or("")
+                    )
+                    .dimmed()
+                );
+            }
+            WhyVersionSource::MissingVersionRef => {
+                crate::outln!(
+                    "  Version: {} {}",
+                    "(unresolved)".red(),
+                    format!(
+                        "(missing version.ref '{}')",
+                        entry.version.version_ref.as_deref().unwrap_or("")
+                    )
+                    .dimmed()
+                );
+            }
+            WhyVersionSource::Unspecified => {
+                crate::outln!("  Version: {}", "(not declared)".yellow());
+            }
+        }
+
+        if !entry.duplicate_aliases.is_empty() {
+            crate::outln!(
+                "  Duplicate aliases: {}",
+                entry.duplicate_aliases.join(", ").yellow()
+            );
+        }
+
+        if !entry.recommendations.is_empty() {
+            crate::outln!("  Recommendations:");
+            for recommendation in &entry.recommendations {
+                crate::outln!("    - {}", recommendation.dimmed());
+            }
+        }
+    }
+}
+
+fn coordinate_display(kind: WhyEntryKind, coordinate: &str) -> colored::ColoredString {
+    match kind {
+        WhyEntryKind::Library => coordinate.cyan(),
+        WhyEntryKind::Plugin => coordinate.magenta(),
+    }
+}
+
+fn match_kind_label(kind: WhyMatchKind) -> &'static str {
+    match kind {
+        WhyMatchKind::Alias => "alias",
+        WhyMatchKind::AliasCaseInsensitive => "alias_case_insensitive",
+        WhyMatchKind::Coordinate => "coordinate",
+    }
 }
 
 #[derive(Clone, Debug)]

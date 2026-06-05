@@ -2,8 +2,8 @@ mod add_resolver;
 mod presenter;
 
 use crate::agents::{
-    AddTargetKind, CatalogAuditor, CatalogEditor, DependencyUpdater, KotlinDoctor,
-    ProjectScannerAgent, VersionControlAgent,
+    AddTargetKind, CatalogAuditor, CatalogEditor, CatalogExplainer, DependencyUpdater,
+    KotlinDoctor, ProjectScannerAgent, VersionControlAgent,
 };
 use crate::cli::OutputFormat;
 use crate::error::{GvcError, Result};
@@ -14,7 +14,8 @@ use colored::Colorize;
 use presenter::{
     add_target_json, dependencies_json, doctor_json, findings_json, print_add_result,
     print_audit_report, print_available_updates, print_dependencies, print_doctor_report,
-    print_json, print_outdated_report, print_repositories, print_update_report, updates_json,
+    print_json, print_outdated_report, print_repositories, print_update_report, print_why_report,
+    updates_json, why_json,
 };
 use regex::Regex;
 use serde_json::json;
@@ -600,6 +601,39 @@ pub fn execute_list<P: AsRef<Path>>(
     Ok(WorkflowStatus::Success)
 }
 
+/// Explain a catalog entry by alias or coordinate.
+pub fn execute_why<P: AsRef<Path>>(
+    project_path: P,
+    options: RunOptions<'_>,
+    query: &str,
+) -> Result<WorkflowStatus> {
+    let project_path = PathValidator::validate_project_path(project_path)?;
+    crate::outln!("{}", "Explaining version catalog entry...".cyan().bold());
+
+    crate::outln!("\n{}", "1. Validating project structure...".yellow());
+    let project_info = validate_project(&project_path, &options)?;
+    crate::outln!("{}", "✓ Project structure is valid".green());
+
+    crate::outln!("\n{}", "2. Reading version catalog...".yellow());
+    let doc = load_catalog_document(&project_info.toml_path)?;
+    crate::outln!("{}", "✓ Catalog loaded".green());
+
+    crate::outln!("\n{}", "3. Explaining catalog entry...".yellow());
+    let report = CatalogExplainer::explain(&doc, query)?;
+    print_why_report(&report);
+
+    if options.is_json() {
+        print_json(&json!({
+            "status": "ok",
+            "command": "why",
+            "catalog": project_info.toml_path.display().to_string(),
+            "why": why_json(&report)?,
+        }))?;
+    }
+
+    Ok(WorkflowStatus::Success)
+}
+
 /// Execute the catalog audit workflow.
 pub fn execute_audit<P: AsRef<Path>>(
     project_path: P,
@@ -745,5 +779,36 @@ coreAgain = { group = "androidx.core", name = "core-ktx", version = "1.12.0" }
         .unwrap();
 
         assert_eq!(status, WorkflowStatus::IssuesFound);
+    }
+
+    #[test]
+    fn execute_why_explains_existing_alias() {
+        crate::utils::output::init(true);
+        let project = tempfile::tempdir().unwrap();
+        fs::write(project.path().join("gradlew"), "").unwrap();
+        fs::create_dir(project.path().join("gradle")).unwrap();
+        fs::write(
+            project.path().join("gradle/libs.versions.toml"),
+            r#"
+[versions]
+core = "1.12.0"
+
+[libraries]
+androidxCore = { module = "androidx.core:core-ktx", version = { ref = "core" } }
+"#,
+        )
+        .unwrap();
+
+        let status = execute_why(
+            project.path(),
+            RunOptions {
+                catalog_path: None,
+                output_format: OutputFormat::Json,
+            },
+            "androidxCore",
+        )
+        .unwrap();
+
+        assert_eq!(status, WorkflowStatus::Success);
     }
 }

@@ -98,6 +98,13 @@ pub enum Commands {
     /// List all dependencies in the version catalog
     List,
 
+    /// Explain a catalog entry by alias or coordinate
+    Why {
+        /// Alias, library coordinate (group:artifact), or plugin id to explain
+        #[arg(value_name = "QUERY")]
+        query: String,
+    },
+
     /// Audit version catalog quality and maintainability
     Audit {
         /// Exit with code 2 when warnings or errors are found
@@ -247,6 +254,16 @@ mod tests {
         };
 
         assert!(fail_on_issues);
+    }
+
+    #[test]
+    fn why_accepts_query() {
+        let cli = Cli::parse_from(["gvc", "why", "androidxCore"]);
+        let Commands::Why { query } = cli.command else {
+            panic!("expected why command");
+        };
+
+        assert_eq!(query, "androidxCore");
     }
 
     #[test]
