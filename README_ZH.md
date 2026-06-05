@@ -69,6 +69,22 @@ cargo build --release
 # 二进制文件位于 target/release/gvc
 ```
 
+### Agent skill（可选）
+
+本仓库内置了一个 `gvc` agent skill，可通过 Vercel 的 `skills` CLI 安装：
+
+```bash
+npx skills add kingsword09/gvc --skill gvc -g -y
+```
+
+从本地 checkout 安装：
+
+```bash
+npx skills add . --skill gvc -g -y
+```
+
+该 skill 用于指导 agent 正确使用 `gvc`；CLI 二进制仍需单独通过 `cargo install gvc` 或 `cargo install --path .` 安装。
+
 ## 快速上手
 
 ```bash
