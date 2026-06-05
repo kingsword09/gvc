@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 )]
 pub struct Cli {
     /// Path to the project directory (defaults to current directory)
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long, global = true, default_value = ".")]
     pub path: String,
 
     /// Path to the version catalog file (defaults to gradle/libs.versions.toml)
@@ -203,6 +203,8 @@ mod tests {
     fn accepts_global_agent_output_flags() {
         let cli = Cli::parse_from([
             "gvc",
+            "--path",
+            "/tmp/project",
             "--format",
             "json",
             "--no-color",
@@ -213,9 +215,20 @@ mod tests {
         ]);
 
         assert_eq!(cli.format, OutputFormat::Json);
+        assert_eq!(cli.path, "/tmp/project");
         assert!(cli.no_color);
         assert!(cli.quiet);
         assert_eq!(cli.catalog.as_deref(), Some("gradle/custom.versions.toml"));
+    }
+
+    #[test]
+    fn accepts_path_after_subcommand() {
+        let cli = Cli::parse_from(["gvc", "check", "--path", "/tmp/project"]);
+        let Commands::Check { .. } = cli.command else {
+            panic!("expected check command");
+        };
+
+        assert_eq!(cli.path, "/tmp/project");
     }
 
     #[test]

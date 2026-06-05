@@ -12,6 +12,14 @@ documentation = "https://github.com/kingsword09/gvc/blob/main/README.md"
 readme = "README.md"
 keywords = ["gradle", "dependency", "version", "catalog", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+include = [
+    "Cargo.lock",
+    "Cargo.toml",
+    "LICENSE",
+    "README.md",
+    "README_ZH.md",
+    "src/**",
+]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive", "color"] }
@@ -22,7 +30,7 @@ thiserror = "2.0.17"
 jiff = "0.2.15"
 colored = "3.0.0"
 indicatif = "0.18.1"
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 semver = "1.0"
 regex = "1.12.2"
 quick-xml = { version = "0.38.3", features = ["serialize"] }
