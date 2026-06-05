@@ -47,9 +47,11 @@ cargo install gvc
 
 ```bash
 # Linux/macOS
-curl -L https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64 -o gvc
-chmod +x gvc
-sudo mv gvc /usr/local/bin/
+curl -LO https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64
+curl -LO https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-linux-x86_64.sha256
+shasum -a 256 -c gvc-linux-x86_64.sha256
+chmod +x gvc-linux-x86_64
+sudo mv gvc-linux-x86_64 /usr/local/bin/gvc
 ```
 
 ### 从源码安装
@@ -79,7 +81,7 @@ gvc check --format json --fail-on-updates  # 适合 agent/CI 的更新检查
 gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
 ```
 
-- 如果版本目录不在当前目录，请使用 `--path /path/to/project`。
+- 如果版本目录不在当前目录，请使用 `--path /path/to/project`；全局参数可以放在命令前或命令后。
 - 使用 `--catalog gradle/custom.versions.toml` 可以指定项目内的某个版本目录文件。
 - 调试或开发时，可使用 `--verbose` 或设置环境变量 `GVC_VERBOSE=1` 以查看 HTTP 请求、缓存等详细日志。
 
