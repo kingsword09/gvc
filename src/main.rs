@@ -53,7 +53,14 @@ fn main() {
             include_unstable,
             fail_on_updates,
         } => workflow::execute_check(&cli.path, options, !include_unstable, fail_on_updates),
+        Commands::Outdated {
+            include_unstable,
+            fail_on_updates,
+        } => workflow::execute_outdated(&cli.path, options, !include_unstable, fail_on_updates),
         Commands::List => workflow::execute_list(&cli.path, options),
+        Commands::Audit { fail_on_issues } => {
+            workflow::execute_audit(&cli.path, options, fail_on_issues)
+        }
         Commands::Doctor { fail_on_issues } => {
             workflow::execute_doctor(&cli.path, options, fail_on_issues)
         }

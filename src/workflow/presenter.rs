@@ -39,7 +39,7 @@ pub(super) fn dependencies_json(doc: &DocumentMut) -> Value {
     })
 }
 
-pub(super) fn doctor_json(report: &DoctorReport) -> Result<Value> {
+pub(super) fn findings_json(report: &DoctorReport) -> Result<Value> {
     let findings = serde_json::to_value(&report.findings)
         .map_err(|e| GvcError::TomlParsing(format!("Failed to serialize doctor findings: {e}")))?;
 
@@ -54,6 +54,10 @@ pub(super) fn doctor_json(report: &DoctorReport) -> Result<Value> {
     }))
 }
 
+pub(super) fn doctor_json(report: &DoctorReport) -> Result<Value> {
+    findings_json(report)
+}
+
 pub(super) fn add_target_json(target: AddTargetKind) -> &'static str {
     match target {
         AddTargetKind::Library => "library",
@@ -62,18 +66,35 @@ pub(super) fn add_target_json(target: AddTargetKind) -> &'static str {
 }
 
 pub(super) fn print_doctor_report(report: &DoctorReport) {
-    crate::outln!("\n{}", "Kotlin/Android Doctor:".cyan().bold());
+    print_findings_report(
+        "Kotlin/Android Doctor:",
+        "✓ No Kotlin/Android catalog issues found",
+        report,
+    );
+}
 
-    if !report.has_issues() {
-        crate::outln!("{}", "✓ No Kotlin/Android catalog issues found".green());
+pub(super) fn print_audit_report(report: &DoctorReport) {
+    print_findings_report(
+        "Catalog Audit:",
+        "✓ No catalog quality issues found",
+        report,
+    );
+}
+
+fn print_findings_report(title: &str, empty_message: &str, report: &DoctorReport) {
+    crate::outln!("\n{}", title.cyan().bold());
+
+    if report.total() == 0 {
+        crate::outln!("{}", empty_message.green());
     } else {
         crate::outln!(
             "{}",
             format!(
-                "{} finding(s): {} error(s), {} warning(s)",
+                "{} finding(s): {} error(s), {} warning(s), {} info(s)",
                 report.total(),
                 report.errors(),
-                report.warnings()
+                report.warnings(),
+                report.infos()
             )
             .yellow()
         );
@@ -196,6 +217,68 @@ pub(super) fn print_available_updates(report: &UpdateReport, stable_only: bool) 
     }
 }
 
+pub(super) fn print_outdated_report(report: &UpdateReport, stable_only: bool) {
+    if report.is_empty() {
+        crate::outln!("\n{}", "✨ All catalog entries are current!".green().bold());
+        return;
+    }
+
+    crate::outln!("\n{}", "📦 Outdated Catalog Entries:".cyan().bold());
+    let total = report.total_updates();
+    let noun = if total == 1 { "entry" } else { "entries" };
+    crate::outln!("{}", format!("Found {} outdated {}", total, noun).yellow());
+
+    if stable_only {
+        crate::outln!("{}", "   (latest stable versions)".dimmed());
+    } else {
+        crate::outln!("{}", "   (latest versions including pre-releases)".dimmed());
+    }
+
+    let rows = outdated_rows(report);
+    let kind_width = rows
+        .iter()
+        .map(|row| row.kind.len())
+        .chain(std::iter::once("Kind".len()))
+        .max()
+        .unwrap_or("Kind".len());
+    let alias_width = rows
+        .iter()
+        .map(|row| row.alias.len())
+        .chain(std::iter::once("Alias".len()))
+        .max()
+        .unwrap_or("Alias".len());
+    let current_width = rows
+        .iter()
+        .map(|row| row.current.len())
+        .chain(std::iter::once("Current".len()))
+        .max()
+        .unwrap_or("Current".len());
+
+    crate::outln!(
+        "\n  {:<kind_width$}  {:<alias_width$}  {:<current_width$}  Latest",
+        "Kind".bold(),
+        "Alias".bold(),
+        "Current".bold()
+    );
+
+    for row in rows {
+        crate::outln!(
+            "  {:<kind_width$}  {:<alias_width$}  {:<current_width$}  {}",
+            row.kind,
+            row.alias.white().bold(),
+            row.current.red(),
+            row.latest.green().bold()
+        );
+    }
+
+    crate::outln!("\n{}", "To apply these updates, run:".dimmed());
+    if stable_only {
+        crate::outln!("  {}", "gvc update".cyan());
+    } else {
+        crate::outln!("  {}", "gvc update --no-stable-only".cyan());
+    }
+}
+
 pub(super) fn print_dependencies(doc: &DocumentMut) {
     let version_refs = collect_version_refs(doc);
 
@@ -203,6 +286,61 @@ pub(super) fn print_dependencies(doc: &DocumentMut) {
     print_libraries(doc, &version_refs);
     print_plugins(doc, &version_refs);
     print_summary(doc);
+}
+
+#[derive(Clone, Debug)]
+struct OutdatedRow {
+    kind: &'static str,
+    alias: String,
+    current: String,
+    latest: String,
+}
+
+fn outdated_rows(report: &UpdateReport) -> Vec<OutdatedRow> {
+    let mut rows = Vec::new();
+
+    rows.extend(
+        report
+            .version_updates
+            .iter()
+            .map(|(alias, (current, latest))| OutdatedRow {
+                kind: "version",
+                alias: alias.clone(),
+                current: current.clone(),
+                latest: latest.clone(),
+            }),
+    );
+
+    rows.extend(
+        report
+            .library_updates
+            .iter()
+            .map(|(alias, (current, latest))| OutdatedRow {
+                kind: "library",
+                alias: alias.clone(),
+                current: current.clone(),
+                latest: latest.clone(),
+            }),
+    );
+
+    rows.extend(
+        report
+            .plugin_updates
+            .iter()
+            .map(|(alias, (current, latest))| OutdatedRow {
+                kind: "plugin",
+                alias: alias.clone(),
+                current: current.clone(),
+                latest: latest.clone(),
+            }),
+    );
+
+    rows.sort_by(|left, right| {
+        left.kind
+            .cmp(right.kind)
+            .then_with(|| left.alias.cmp(&right.alias))
+    });
+    rows
 }
 
 pub(super) fn print_update_report(report: &UpdateReport) {

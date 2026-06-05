@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-一个快速、独立的 CLI 工具，用于检查、列出、更新、新增并诊断 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
+一个快速、独立的 CLI 工具，用于检查、列出、更新、新增、审计并诊断 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
 
 [English](README.md) | 简体中文
 
@@ -13,10 +13,12 @@
 - 🚀 **直接查询 Maven 仓库** - 无需 Gradle 运行时，纯 Rust 性能
 - 📦 **多仓库支持** - Maven Central、Google Maven、自定义仓库，智能过滤
 - 🎯 **智能版本检测** - 语义化版本控制，稳定性过滤（alpha、beta、RC、dev）
-- 📋 **五个命令**：
+- 📋 **七个命令**：
   - `check` - 查看可用更新但不应用
+  - `outdated` - 以类似包管理器的表格展示过期条目
   - `update` - 应用依赖更新
   - `list` - 以 Maven 坐标格式显示所有依赖
+  - `audit` - 发现重复坐标、缺失版本引用等版本目录质量问题
   - `add` - 直接向版本目录写入依赖或插件并自动管理版本别名
   - `doctor` - 诊断 Kotlin/Android 版本目录一致性
 - 🔒 **版本引用支持** - 处理 `[versions]` 表并自动解析
@@ -68,6 +70,8 @@ cargo build --release
 
 ```bash
 gvc check              # 验证项目并列出可用更新
+gvc outdated           # 以表格展示过期的版本目录条目
+gvc audit              # 离线检查版本目录质量
 gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
 gvc check --format json --fail-on-updates  # 适合 agent/CI 的更新检查
 gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
@@ -84,8 +88,10 @@ gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
 | 命令 | 作用 | 常用参数 |
 | --- | --- | --- |
 | `gvc check` | 验证项目并打印可用的依赖/插件更新（不会写入文件）。 | `--include-unstable` 展示预发布版本；`--path` 指定其他项目。 |
+| `gvc outdated` | 以类似包管理器的表格展示过期的版本别名、库和插件。 | `--include-unstable` 包含预发布版本；`--fail-on-updates` 在自动化场景中以退出码 2 表示发现更新。 |
 | `gvc update` | 预览或应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--dry-run` 预览；`--apply` 明确应用；`--target "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
 | `gvc list` | 以 Maven 坐标格式展示版本目录中的所有条目。 | `--path` 指向其他项目。 |
+| `gvc audit` | 离线检查版本目录的可维护性。 | `--fail-on-issues` 在发现 warning/error 时以退出码 2 结束；`--format json` 适合自动化。 |
 | `gvc doctor` | 离线检查 Kotlin、KSP、Android Gradle Plugin 与 Compose 的版本目录一致性。 | `--fail-on-issues` 在发现 warning/error 时以退出码 2 结束；`--format json` 适合自动化。 |
 | `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-P/--plugin` 指定插件；`--no-stable-only` 解析 `:latest` 时允许预发布版本；`--alias` / `--version-alias` 自定义键名。 |
 
@@ -100,7 +106,7 @@ gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
 
 - `0` - 命令成功完成。
 - `1` - 校验、解析、网络、Git 或写入错误。
-- `2` - `gvc check --fail-on-updates` 发现可用更新，或 `gvc doctor --fail-on-issues` 发现诊断项。
+- `2` - `gvc check/outdated --fail-on-updates` 发现可用更新，或 `gvc audit/doctor --fail-on-issues` 发现诊断项。
 
 ### 检查更新
 
@@ -123,6 +129,36 @@ gvc check --include-unstable
 ```bash
 gvc check --format json --fail-on-updates
 ```
+
+### 查看过期条目
+
+当你想要类似包管理器的紧凑视图时，可以使用 `outdated`：
+
+```bash
+gvc outdated
+gvc outdated --include-unstable
+gvc outdated --format json --fail-on-updates
+```
+
+`outdated` 与 `check` 使用同一套解析器，因此会尊重项目中配置的 Gradle 仓库以及相同的稳定版本过滤规则。
+
+### 审计版本目录质量
+
+对版本目录运行离线可维护性审计：
+
+```bash
+gvc audit
+gvc audit --format json
+gvc audit --fail-on-issues
+```
+
+当前 audit 会检查：
+
+- 指向缺失 `[versions]` 别名的 `version.ref`。
+- 多个别名指向同一个库或插件坐标。
+- 可以迁移到 `[versions]` 的 inline version。
+- 未被 catalog 中库或插件引用的 `[versions]` 别名。
+- 多个 `[versions]` 别名使用同一个版本值。
 
 ### 列出依赖
 

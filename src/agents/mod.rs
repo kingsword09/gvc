@@ -1,3 +1,4 @@
+pub mod catalog_auditor;
 pub mod catalog_editor;
 pub mod dependency_updater;
 pub mod doctor;
@@ -8,6 +9,7 @@ pub mod version_control;
 pub mod update;
 pub use update::UpdateReport;
 
+pub use catalog_auditor::CatalogAuditor;
 pub use catalog_editor::{AddResult, AddTargetKind, CatalogEditor};
 pub use dependency_updater::DependencyUpdater;
 pub use doctor::{DoctorReport, DoctorSeverity, KotlinDoctor};
