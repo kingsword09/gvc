@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-一个快速、独立的 CLI 工具，用于检查、列出、更新、新增、审计并诊断 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
+一个快速、独立的 CLI 工具，用于检查、列出、解释、更新、新增、审计并诊断 Gradle 版本目录（`libs.versions.toml`）中的依赖与插件。
 
 [English](README.md) | 简体中文
 
@@ -13,11 +13,12 @@
 - 🚀 **直接查询 Maven 仓库** - 无需 Gradle 运行时，纯 Rust 性能
 - 📦 **多仓库支持** - Maven Central、Google Maven、自定义仓库，智能过滤
 - 🎯 **智能版本检测** - 语义化版本控制，稳定性过滤（alpha、beta、RC、dev）
-- 📋 **七个命令**：
+- 📋 **八个命令**：
   - `check` - 查看可用更新但不应用
   - `outdated` - 以类似包管理器的表格展示过期条目
   - `update` - 应用依赖更新
   - `list` - 以 Maven 坐标格式显示所有依赖
+  - `why` - 按 alias 或坐标解释版本目录条目
   - `audit` - 发现重复坐标、缺失版本引用等版本目录质量问题
   - `add` - 直接向版本目录写入依赖或插件并自动管理版本别名
   - `doctor` - 诊断 Kotlin/Android 版本目录一致性
@@ -71,6 +72,7 @@ cargo build --release
 ```bash
 gvc check              # 验证项目并列出可用更新
 gvc outdated           # 以表格展示过期的版本目录条目
+gvc why androidx-core  # 按 alias 或坐标解释版本目录条目
 gvc audit              # 离线检查版本目录质量
 gvc update --no-git    # 在不创建 Git 分支的情况下应用更新
 gvc check --format json --fail-on-updates  # 适合 agent/CI 的更新检查
@@ -91,6 +93,7 @@ gvc doctor --format json --fail-on-issues  # Kotlin/Android 版本目录诊断
 | `gvc outdated` | 以类似包管理器的表格展示过期的版本别名、库和插件。 | `--include-unstable` 包含预发布版本；`--fail-on-updates` 在自动化场景中以退出码 2 表示发现更新。 |
 | `gvc update` | 预览或应用版本目录更新，支持稳定性过滤与 Git 集成。 | `--dry-run` 预览；`--apply` 明确应用；`--target "*glob*"` 定向升级；`--no-git` 跳过 Git；`--no-stable-only` 允许预发布版本。 |
 | `gvc list` | 以 Maven 坐标格式展示版本目录中的所有条目。 | `--path` 指向其他项目。 |
+| `gvc why <query>` | 解释某个条目的坐标、版本来源、重复 alias 和建议。 | 可用 alias、库坐标（`group:artifact`）或插件 ID 查询；`--format json` 适合自动化。 |
 | `gvc audit` | 离线检查版本目录的可维护性。 | `--fail-on-issues` 在发现 warning/error 时以退出码 2 结束；`--format json` 适合自动化。 |
 | `gvc doctor` | 离线检查 Kotlin、KSP、Android Gradle Plugin 与 Compose 的版本目录一致性。 | `--fail-on-issues` 在发现 warning/error 时以退出码 2 结束；`--format json` 适合自动化。 |
 | `gvc add` | 默认向 `[libraries]` 插入新条目，也可写入 `[plugins]`。 | `-P/--plugin` 指定插件；`--no-stable-only` 解析 `:latest` 时允许预发布版本；`--alias` / `--version-alias` 自定义键名。 |
@@ -186,6 +189,18 @@ Summary:
   4 libraries
   2 plugins
 ```
+
+### 解释版本目录条目
+
+使用 `why` 查看某个 alias 或坐标是如何声明并解析的：
+
+```bash
+gvc why androidx-core
+gvc why androidx.core:core-ktx
+gvc why com.android.application --format json
+```
+
+报告会展示匹配到的条目、坐标、inline version 或 `version.ref`、解析后的版本、同一坐标的重复 alias，以及低风险建议。
 
 ### 诊断 Kotlin/Android 版本目录
 

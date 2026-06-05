@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, update, add, audit, and diagnose dependencies or plugins with confidence.
+A fast, standalone CLI for managing Gradle version catalogs (`libs.versions.toml`): check, list, explain, update, add, audit, and diagnose dependencies or plugins with confidence.
 
 English | [简体中文](README_ZH.md)
 
@@ -13,11 +13,12 @@ English | [简体中文](README_ZH.md)
 - 🚀 **Direct Maven repository queries** - No Gradle runtime needed, pure Rust performance
 - 📦 **Multi-repository support** - Maven Central, Google Maven, custom repositories with smart filtering
 - 🎯 **Intelligent version detection** - Semantic versioning with stability filtering (alpha, beta, RC, dev)
-- 📋 **Seven commands**:
+- 📋 **Eight commands**:
   - `check` - View available updates without applying
   - `outdated` - Show outdated entries in a package-manager style table
   - `update` - Apply dependency updates
   - `list` - Display all dependencies in Maven coordinate format
+  - `why` - Explain a catalog entry by alias or coordinate
   - `audit` - Find catalog quality issues such as duplicate coordinates or missing version refs
   - `add` - Insert dependencies or plugins directly into the catalog with version aliasing
   - `doctor` - Diagnose Kotlin/Android catalog consistency
@@ -71,6 +72,7 @@ cargo build --release
 ```bash
 gvc check              # validate project and list available upgrades
 gvc outdated           # show outdated catalog entries in a table
+gvc why androidx-core  # explain a catalog entry by alias or coordinate
 gvc audit              # inspect catalog quality without network access
 gvc update --no-git    # apply upgrades without creating a Git branch
 gvc check --format json --fail-on-updates  # agent/CI-friendly update gate
@@ -91,6 +93,7 @@ gvc doctor --format json --fail-on-issues  # Kotlin/Android catalog diagnostics
 | `gvc outdated` | Prints outdated version aliases, libraries, and plugins in a package-manager style table. | `--include-unstable` to include pre-releases; `--fail-on-updates` exits with code 2 for automation. |
 | `gvc update` | Applies or previews catalog updates, honoring stability filters and optional Git integration. | `--dry-run` to preview; `--apply` to be explicit; `--target "*glob*"` for targeted upgrades; `--no-git` to skip branch/commit; `--no-stable-only` to include pre-releases. |
 | `gvc list` | Displays the resolved version catalog as Maven coordinates for quick auditing. | `--path` to point at another project. |
+| `gvc why <query>` | Explains a catalog entry's coordinate, version source, duplicate aliases, and recommendations. | Query by alias, library coordinate (`group:artifact`), or plugin id; `--format json` for automation. |
 | `gvc audit` | Checks catalog maintainability without network access. | `--fail-on-issues` exits with code 2 when warnings/errors are found; `--format json` for automation. |
 | `gvc doctor` | Checks Kotlin, KSP, Android Gradle Plugin, and Compose catalog consistency without network access. | `--fail-on-issues` exits with code 2 when warnings/errors are found; `--format json` for automation. |
 | `gvc add` | Inserts a new entry into `[libraries]` (default) or `[plugins]`. | `-P/--plugin` targets plugins; `--no-stable-only` allows pre-releases when resolving `:latest`; `--alias` / `--version-alias` override generated keys. |
@@ -186,6 +189,18 @@ Summary:
   4 libraries
   2 plugins
 ```
+
+### Explain a Catalog Entry
+
+Use `why` to inspect how an alias or coordinate is declared and resolved:
+
+```bash
+gvc why androidx-core
+gvc why androidx.core:core-ktx
+gvc why com.android.application --format json
+```
+
+The report shows the matched entry, coordinate, inline version or `version.ref`, resolved version, duplicate aliases for the same coordinate, and any low-risk recommendations.
 
 ### Diagnose Kotlin/Android Catalogs
 

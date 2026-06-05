@@ -58,6 +58,7 @@ fn main() {
             fail_on_updates,
         } => workflow::execute_outdated(&cli.path, options, !include_unstable, fail_on_updates),
         Commands::List => workflow::execute_list(&cli.path, options),
+        Commands::Why { query } => workflow::execute_why(&cli.path, options, &query),
         Commands::Audit { fail_on_issues } => {
             workflow::execute_audit(&cli.path, options, fail_on_issues)
         }
