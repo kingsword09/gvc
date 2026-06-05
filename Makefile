@@ -1,4 +1,4 @@
-.PHONY: help build test fmt lint clean install release
+.PHONY: help build test fmt lint clean install release prepare-release
 
 help:
 	@echo "Available targets:"
@@ -10,12 +10,17 @@ help:
 	@echo "  clean    - Clean build artifacts"
 	@echo "  install  - Install the binary locally"
 	@echo "  check    - Run all checks (fmt, lint, test)"
+	@echo "  prepare-release VERSION=x.y.z [ARGS='--skip-checks'] - Update release metadata and verify package"
 
 build:
 	cargo build
 
 release:
 	cargo build --release
+
+prepare-release:
+	@test -n "$(VERSION)" || (echo "VERSION is required, for example: make prepare-release VERSION=0.3.0" >&2; exit 1)
+	scripts/prepare-release.sh $(VERSION) $(ARGS)
 
 test:
 	cargo test --all-features

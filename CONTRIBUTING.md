@@ -180,6 +180,36 @@ mod tests {
 3. Once approved, your PR will be merged
 4. Your contribution will be included in the next release
 
+## Releasing
+
+Use the release preparation script to keep version metadata in sync before
+tagging a release:
+
+```bash
+make prepare-release VERSION=0.3.0
+```
+
+The script updates `Cargo.toml`, refreshes the `gvc` entry in `Cargo.lock`,
+updates GitHub Releases download URLs in both READMEs, creates or dates the
+matching `CHANGELOG.md` section, runs the standard Rust checks, and verifies the
+crate package contains the expected source, README, license, and skill files.
+
+If you need a quick metadata-only pass while drafting release notes, skip the
+expensive checks explicitly:
+
+```bash
+make prepare-release VERSION=0.3.0 ARGS="--skip-checks --skip-package"
+```
+
+Before pushing the tag, replace any generated TODO changelog entry with the
+actual release summary, review `git diff`, and commit with:
+
+```bash
+git commit -am "chore(release): prepare v0.3.0"
+git tag v0.3.0
+git push origin main v0.3.0
+```
+
 ## Need Help?
 
 - Check existing [issues](https://github.com/kingsword09/gvc/issues)
