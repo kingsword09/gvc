@@ -1,0 +1,36 @@
+name: gvc
+base: core22
+version: '0.1.1'
+summary: CLI manager for Gradle version catalogs
+description: |
+  A fast, standalone CLI for managing Gradle version catalogs (libs.versions.toml):
+  check, list, update, and add dependencies or plugins with confidence.
+
+  Features:
+  - Direct Maven repository queries - No Gradle runtime needed
+  - Multi-repository support with smart filtering
+  - Intelligent version detection with semantic versioning
+  - Four commands: check, update, list, add
+  - Beautiful CLI output with progress bars and colored output
+
+grade: stable
+confinement: strict
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+parts:
+  gvc:
+    plugin: dump
+    source: https://github.com/kingsword09/gvc/releases/download/v0.1.1/gvc-v0.1.1-linux-x86_64.tar.gz
+    source-type: tar
+    organize:
+      gvc: bin/gvc
+
+apps:
+  gvc:
+    command: bin/gvc
+    plugs:
+      - network
+      - network-bind

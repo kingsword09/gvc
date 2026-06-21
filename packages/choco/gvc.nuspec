@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>gvc</id>
+    <version>0.1.1</version>
+    <title>GVC (Gradle Version Catalog Manager)</title>
+    <authors>kingsword09</authors>
+    <description>CLI manager for Gradle version catalogs—check, list, update, and add dependencies with automatic version aliases. A fast, standalone CLI for managing Gradle version catalogs (libs.versions.toml): check, list, update, and add dependencies or plugins with confidence.</description>
+    <projectUrl>https://github.com/kingsword09/gvc</projectUrl>
+    <projectSourceUrl>https://github.com/kingsword09/gvc</projectUrl>
+    <packageSourceUrl>https://github.com/kingsword09/gvc</packageSourceUrl>
+    <docsUrl>https://github.com/kingsword09/gvc/blob/main/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/kingsword09/gvc/issues</bugTrackerUrl>
+    <tags>gradle dependency version catalog cli development-tools</tags>
+    <licenseUrl>https://github.com/kingsword09/gvc/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <iconUrl>https://raw.githubusercontent.com/kingsword09/gvc/main/images/gvc-icon.png</iconUrl>
+    <summary>CLI tool for managing Gradle version catalogs with automatic dependency updates</summary>
+    <releaseNotes>See https://github.com/kingsword09/gvc/releases/tag/v0.1.1 for release notes</releaseNotes>
+    <copyright>Copyright © 2025</copyright>
+    <language>en-US</language>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

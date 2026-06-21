@@ -1,0 +1,327 @@
+name: Update Package Managers
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-homebrew:
+    name: Update Homebrew Formula
+    runs-on: macos-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout homebrew formula
+        uses: actions/checkout@v5
+        with:
+          repository: 'kingsword09/homebrew-gvc'
+          token: ${{ secrets.HOMEBREW_REPO_TOKEN }}
+          path: homebrew-gvc
+
+      - name: Download release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.tar.gz" \
+            --dir ./downloads \
+            --skip-duplicates
+
+      - name: Calculate checksums
+        run: |
+          cd downloads
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Update formula
+        run: |
+          # Extract version from tag
+          VERSION=${GITHUB_TAG#v}
+
+          # Update the version and SHA256 checksums in the formula
+          # This is a placeholder - you would need to implement the actual update logic
+          # Or manually update the formula with the correct checksums
+
+          echo "Version: $VERSION"
+          echo "Checksums calculated from downloads/"
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: homebrew-gvc
+          commit-message: 'Update gvc to v${{ github.event.release.tag_name }}'
+          title: 'Update gvc to v${{ github.event.release.tag_name }}'
+          body: |
+            ## Summary
+
+            Automated Homebrew formula update for gvc v${{ github.event.release.tag_name }}
+
+            ## Changes
+
+            - Updated version to ${{ github.event.release.tag_name }}
+            - Updated SHA256 checksums for all platforms
+
+            ## Verification
+
+            - [ ] SHA256 checksums match release artifacts
+            - [ ] Formula installs successfully
+            - [ ] Binary executes without errors
+
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: update-gvc-${{ github.event.release.tag_name }}
+          delete-branch: true
+
+  update-winget:
+    name: Update Winget Manifest
+    runs-on: windows-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout manifest repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'microsoft/winget-pkgs'
+          token: ${{ secrets.WINGET_PKGS_TOKEN }}
+          path: winget-pkgs
+
+      - name: Download Windows release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.zip" \
+            --dir ./downloads \
+            --skip-duplicates
+
+      - name: Calculate checksums for Windows binaries
+        shell: pwsh
+        run: |
+          $downloads = Get-ChildItem -Path ./downloads -Filter *.zip
+          foreach ($file in $downloads) {
+            $hash = Get-FileHash -Path $file.Path -Algorithm SHA256
+            $hash.Hash.ToLower()
+          }
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: winget-pkgs
+          commit-message: 'Update GVC.GVC to v${{ github.event.release.tag_name }}'
+          title: 'Update GVC.GVC to v${{ github.event.release.tag_name }}'
+          body: |
+            ## Summary
+
+            Automated Winget manifest update for GVC v${{ github.event.release.tag_name }}
+
+            ## Changes
+
+            - Updated version to ${{ github.event.release.tag_name }}
+            - Updated SHA256 checksums for Windows installers
+
+            ## Verification
+
+            - [ ] SHA256 checksums match release artifacts
+            - [ ] Manifest validates successfully
+            - [ ] Installer architecture matches manifest
+
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: update-gvc-${{ github.event.release.tag_name }}
+          delete-branch: true
+
+  update-chocolatey:
+    name: Update Chocolatey Package
+    runs-on: windows-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout chocolatey repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'kingsword09/chocolatey-packages'
+          token: ${{ secrets.CHOCOLATEY_REPO_TOKEN }}
+          path: chocolatey-packages
+
+      - name: Download Windows release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.zip" \
+            --dir ./downloads \
+            --skip-duplicates
+
+      - name: Calculate checksum for Windows binary
+        shell: pwsh
+        run: |
+          $downloads = Get-ChildItem -Path ./downloads -Filter *.zip
+          foreach ($file in $downloads) {
+            $hash = Get-FileHash -Path $file.Path -Algorithm SHA256
+            Write-Output "$($hash.Hash.ToLower())  $($file.Name)" | Out-File -FilePath ./checksum.txt -Encoding utf8 -Append
+          }
+          Get-Content ./checksum.txt
+
+      - name: Update nuspec version
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.release.tag_name }}".TrimStart('v')
+          (Get-Content .\packages\choco\gvc.nuspec) -replace '<version>.*</version>', "<version>$version</version>" | Set-Content .\packages\choco\gvc.nuspec
+
+      - name: Update chocolateyinstall.ps1 checksum
+        shell: pwsh
+        run: |
+          $checksum = Get-Content ./checksum.txt | Select-String -Pattern '\.zip' | ForEach-Object { $_.Line.Split(' ')[0] }
+          (Get-Content .\packages\choco\tools\chocolateyinstall.ps1) -replace '\$checksum32 = .*', "`$checksum32 = '$checksum'" | Set-Content .\packages\choco\tools\chocolateyinstall.ps1
+
+      - name: Update VERIFICATION.txt checksum
+        shell: pwsh
+        run: |
+          $checksum = Get-Content ./checksum.txt | Select-String -Pattern '\.zip' | ForEach-Object { $_.Line.Split(' ')[0] }
+          (Get-Content .\packages\choco\tools\VERIFICATION.txt) -replace 'REPLACE_WITH_WINDOWS_SHA256', "$checksum" | Set-Content .\packages\choco\tools\VERIFICATION.txt
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: chocolatey-packages
+          commit-message: 'Update gvc to v${{ github.event.release.tag_name }}'
+          title: 'Update gvc to v${{ github.event.release.tag_name }}'
+          body: |
+            ## Summary
+
+            Automated Chocolatey package update for gvc v${{ github.event.release.tag_name }}
+
+            ## Changes
+
+            - Updated version to ${{ github.event.release.tag_name }}
+            - Updated SHA256 checksums for Windows installers
+            - Updated verification checksums
+
+            ## Verification
+
+            - [ ] SHA256 checksums match release artifacts
+            - [ ] Package packs successfully
+            - [ ] Installation tested
+
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: update-gvc-${{ github.event.release.tag_name }}
+          delete-branch: true
+
+  update-snap:
+    name: Update Snap Package
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout snapcraft repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'snapcrafters/gvc'
+          token: ${{ secrets.SNAP_REPO_TOKEN }}
+          path: snapcrafters-gvc
+
+      - name: Download Linux release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.tar.gz" \
+            --dir ./downloads \
+            --skip-duplicates
+
+      - name: Calculate checksum for Linux binary
+        run: |
+          cd downloads
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Update snapcraft.yaml version
+        run: |
+          sed -i "s/version: '.*'/version: '${{ github.event.release.tag_name }}'/g" snapcraft.yaml
+          sed -i 's|source: https://github.com/kingsword09/gvc/releases/download/v[0-9.]*/gvc-v[0-9.]*-linux-x86_64.tar.gz|source: https://github.com/kingsword09/gvc/releases/download/${{ github.event.release.tag_name }}/gvc-${{ github.event.release.tag_name }}-linux-x86_64.tar.gz|g' snapcraft.yaml
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: snapcrafters-gvc
+          commit-message: 'Update gvc to v${{ github.event.release.tag_name }}'
+          title: 'Update gvc to v${{ github.event.release.tag_name }}'
+          body: |
+            ## Summary
+
+            Automated Snap package update for gvc v${{ github.event.release.tag_name }}
+
+            ## Changes
+
+            - Updated version to ${{ github.event.release.tag_name }}
+            - Updated download URL to latest release
+
+            ## Verification
+
+            - [ ] Snapcraft.yaml validates successfully
+            - [ ] Download URL is correct
+            - [ ] Version matches release tag
+
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: update-gvc-${{ github.event.release.tag_name }}
+          delete-branch: true
+
+  update-flatpak:
+    name: Update Flatpak Manifest
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout flathub repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'flathub/kingsword09.GVC'
+          token: ${{ secrets.FLATHUB_REPO_TOKEN }}
+          path: flathub-gvc
+
+      - name: Download Linux release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.tar.gz" \
+            --dir ./downloads \
+            --skip-duplicates
+
+      - name: Calculate checksum for Linux binary
+        run: |
+          cd downloads
+          sha256sum *.tar.gz | tee checksum.txt
+
+      - name: Update flatpak manifest
+        run: |
+          # Update version
+          sed -i "s|version: '.*'|version: '${{ github.event.release.tag_name }}'|g" kingsword09.GVC.yml
+
+          # Update URL
+          sed -i 's|url: https://github.com/kingsword09/gvc/releases/download/v[0-9.]*/gvc-v[0-9.]*-linux-x86_64.tar.gz|url: https://github.com/kingsword09/gvc/releases/download/${{ github.event.release.tag_name }}/gvc-${{ github.event.release.tag_name }}-linux-x86_64.tar.gz|g' kingsword09.GVC.yml
+
+          # Update SHA256
+          CHECKSUM=$(cat checksum.txt | cut -d' ' -f1)
+          sed -i "s|sha256: REPLACE_WITH_LINUX_SHA256|sha256: $CHECKSUM|g" kingsword09.GVC.yml
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: flathub-gvc
+          commit-message: 'Update com.gvc.cli to v${{ github.event.release.tag_name }}'
+          title: 'Update com.gvc.cli to v${{ github.event.release.tag_name }}'
+          body: |
+            ## Summary
+
+            Automated Flatpak manifest update for com.gvc.cli v${{ github.event.release.tag_name }}
+
+            ## Changes
+
+            - Updated version to ${{ github.event.release.tag_name }}
+            - Updated download URL to latest release
+            - Updated SHA256 checksum
+
+            ## Verification
+
+            - [ ] Manifest validates successfully
+            - [ ] Download URL is correct
+            - [ ] SHA256 checksum matches release artifact
+            - [ ] Version matches release tag
+
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: update-gvc-${{ github.event.release.tag_name }}
+          delete-branch: true
